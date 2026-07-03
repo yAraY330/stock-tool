@@ -165,3 +165,24 @@ def remove_from_watchlist(idx: int) -> None:
     if 0 <= idx < len(data["watchlist"]):
         data["watchlist"].pop(idx)
         _save(data)
+
+
+# ── 速覽表額外追蹤 ────────────────────────────────────────────
+def get_quick_view_extras() -> list:
+    return _load().get("quick_view_extras", [])
+
+
+def add_quick_view_extra(code: str, name: str) -> None:
+    data = _load()
+    extras = data.get("quick_view_extras", [])
+    if not any(e["code"] == code for e in extras):
+        extras.append({"code": code, "name": name})
+        data["quick_view_extras"] = extras
+        _save(data)
+
+
+def remove_quick_view_extra(code: str) -> None:
+    data = _load()
+    extras = data.get("quick_view_extras", [])
+    data["quick_view_extras"] = [e for e in extras if e["code"] != code]
+    _save(data)

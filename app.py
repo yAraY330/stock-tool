@@ -10,6 +10,7 @@ from modules.portfolio import (
     get_favorites, toggle_favorite,
     get_watchlist, add_to_watchlist, update_watchlist_item, remove_from_watchlist,
     get_accounts,
+    get_quick_view_extras, add_quick_view_extra, remove_quick_view_extra,
 )
 
 st.set_page_config(page_title="yAraY的台股溝", page_icon="📊", layout="wide")
@@ -152,10 +153,10 @@ hr {
         letter-spacing: -0.3px;
     }
 
-    /* Tab 文字縮小，讓四個 tab 都放得下 */
+    /* Tab 文字縮小，讓五個 tab 都放得下 */
     .stTabs [data-baseweb="tab"] {
-        padding: 0 8px !important;
-        font-size: 0.73rem !important;
+        padding: 0 5px !important;
+        font-size: 0.68rem !important;
         height: 36px !important;
     }
 
@@ -272,7 +273,7 @@ if _wl_targets:
     except Exception:
         pass
 
-tab1, tab2, tab3, tab4 = st.tabs(["📊 持倉管理", "➕ 新增持倉", "👁️ 觀察清單", "🔍 股票評估"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估"])
 
 
 # ── Tab 1: 持倉管理 ───────────────────────────────────────────
@@ -383,21 +384,6 @@ with tab1:
 
         # ── 持倉明細 ──
         st.subheader("持倉明細")
-
-        # 速覽表：一眼掃完所有持股
-        _tbl_rows = []
-        _enriched_accounts = {e.get("account", "預設帳號") for e in enriched}
-        for e in enriched:
-            _arrow = "▲" if e["pnl"] and e["pnl"] > 0 else ("▼" if e["pnl"] and e["pnl"] < 0 else "")
-            _row = {"股票": f"{e['name']}（{e['code']}）"}
-            if len(_enriched_accounts) > 1:
-                _row["帳號"] = e.get("account", "預設帳號")
-            _row["現價"]  = f"NT$ {e['current']:,.1f}" if e["current"] else "—"
-            _row["損益"]  = f"{_arrow} {e['pnl']:+,.0f}" if e["pnl"] is not None else "—"
-            _row["損益%"] = f"{_arrow} {e['pnl_pct']:+.2f}%" if e["pnl_pct"] is not None else "—"
-            _tbl_rows.append(_row)
-        st.dataframe(pd.DataFrame(_tbl_rows), use_container_width=True, hide_index=True)
-        st.divider()
 
         for e in enriched:
             real_idx = e["real_idx"]
@@ -560,8 +546,117 @@ with tab1:
         st.info("目前沒有持倉記錄。請前往「➕ 新增持倉」頁面新增你的第一筆。")
 
 
-# ── Tab 2: 新增持倉 ───────────────────────────────────────────
+# ── Tab 2: 速覽 ──────────────────────────────────────────────
 with tab2:
+    st.header("速覽表")
+
+    sv_holdings = get_holdings()
+    sv_extras   = get_quick_view_extras()
+    sv_holding_codes = {h["code"] for h in sv_holdings}
+
+    sv_holding_tickers = tuple(sorted({format_ticker(h["code"]) for h in sv_holdings}))
+    sv_extra_tickers   = tuple(sorted({format_ticker(e["code"]) for e in sv_extras}))
+    sv_all_tickers     = tuple(sorted(set(sv_holding_tickers) | set(sv_extra_tickers)))
+
+    if sv_all_tickers:
+        with st.spinner("載入資料中..."):
+            try:
+                sv_prices = get_current_prices(sv_all_tickers)
+            except Exception:
+                sv_prices = {}
+            try:
+                sv_ohlc = get_ohlc_batch(sv_all_tickers)
+            except Exception:
+                sv_ohlc = {}
+
+        # ── 持倉速覽表 ──
+        if sv_holdings:
+            sv_rows = []
+            for h in sv_holdings:
+                ticker  = format_ticker(h["code"])
+                cur     = sv_prices.get(ticker, {}).get("price")
+                avg     = h["avg_cost"]
+                shares  = h["shares"]
+                pnl     = (cur - avg) * shares if cur else None
+                pnl_pct = (cur - avg) / avg * 100 if cur else None
+                arrow   = "▲" if pnl and pnl > 0 else ("▼" if pnl and pnl < 0 else "")
+                sv_rows.append({
+                    "股票":  f"{h['name']}（{h['code']}）",
+                    "現價":  f"NT$ {cur:,.1f}" if cur else "—",
+                    "損益":  f"{arrow} {pnl:+,.0f}" if pnl is not None else "—",
+                    "損益%": f"{arrow} {pnl_pct:+.2f}%" if pnl_pct is not None else "—",
+                })
+            st.dataframe(pd.DataFrame(sv_rows), use_container_width=True, hide_index=True)
+
+        # ── K 線圖（持倉在前，額外追蹤在後，兩欄並排）──
+        st.subheader("K 線圖（近一個月）")
+        sv_display, sv_seen = [], set()
+        for h in sv_holdings:
+            if h["code"] not in sv_seen:
+                sv_display.append({"code": h["code"], "name": h["name"], "is_holding": True})
+                sv_seen.add(h["code"])
+        for e in sv_extras:
+            if e["code"] not in sv_seen:
+                sv_display.append({"code": e["code"], "name": e["name"], "is_holding": False})
+                sv_seen.add(e["code"])
+
+        for i in range(0, len(sv_display), 2):
+            cols = st.columns(2)
+            for j, item in enumerate(sv_display[i:i + 2]):
+                ticker    = format_ticker(item["code"])
+                price_now = sv_prices.get(ticker, {}).get("price")
+                price_str = f"NT$ {price_now:,.1f}" if price_now else "—"
+                with cols[j]:
+                    st.caption(
+                        f"{'★ ' if item['is_holding'] else ''}"
+                        f"{item['name']}（{item['code']}）　{price_str}"
+                    )
+                    if ticker in sv_ohlc:
+                        st.plotly_chart(
+                            _make_candlestick(sv_ohlc[ticker], height=160),
+                            use_container_width=True,
+                            key=f"sv_kline_{item['code']}",
+                        )
+                    else:
+                        st.caption("無法載入 K 線資料")
+                    if not item["is_holding"]:
+                        if st.button("移除", key=f"sv_rm_{item['code']}", use_container_width=True):
+                            remove_quick_view_extra(item["code"])
+                            st.rerun()
+    else:
+        st.info("持倉為空。新增持倉後，速覽表會自動顯示。")
+
+    # ── 新增額外追蹤股票 ──
+    st.divider()
+    st.subheader("➕ 新增其他股票到速覽表")
+    with st.form("sv_add_form", clear_on_submit=True):
+        sv_code      = st.text_input("股票代碼", placeholder="例：0050、2330")
+        sv_submitted = st.form_submit_button("加入", type="primary", use_container_width=True)
+
+    if sv_submitted:
+        if not sv_code.strip():
+            st.error("請輸入股票代碼")
+        else:
+            sv_ticker_input = format_ticker(sv_code.strip())
+            existing_codes  = {e["code"] for e in sv_extras} | sv_holding_codes
+            if sv_code.strip().upper() in existing_codes:
+                st.warning("此股票已在速覽表中")
+            else:
+                try:
+                    sv_info = get_stock_info(sv_ticker_input)
+                    sv_name = sv_info.get("name") or sv_code.strip().upper()
+                    if not sv_info.get("price"):
+                        st.error("找不到此股票代碼，請確認後再試")
+                    else:
+                        add_quick_view_extra(sv_code.strip().upper(), sv_name)
+                        st.success(f"✅ 已加入：{sv_name}（{sv_code.strip().upper()}）")
+                        st.rerun()
+                except Exception:
+                    st.error("查詢失敗，請確認代碼是否正確")
+
+
+# ── Tab 3: 新增持倉 ───────────────────────────────────────────
+with tab3:
     st.header("新增持倉")
 
     st.subheader("手動新增")
@@ -704,8 +799,8 @@ with tab2:
             st.rerun()
 
 
-# ── Tab 3: 觀察清單 ───────────────────────────────────────────
-with tab3:
+# ── Tab 4: 觀察清單 ───────────────────────────────────────────
+with tab4:
     st.header("觀察清單")
     watchlist = get_watchlist()
 
@@ -819,8 +914,8 @@ with tab3:
                 st.error("查詢失敗，請確認代碼是否正確")
 
 
-# ── Tab 4: 股票評估 ───────────────────────────────────────────
-with tab4:
+# ── Tab 5: 股票評估 ───────────────────────────────────────────
+with tab5:
     st.header("股票評估工具")
     st.write("輸入台股代碼，解讀這支股票的基本面數字。")
 
