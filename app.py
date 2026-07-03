@@ -386,10 +386,11 @@ with tab1:
 
         # 速覽表：一眼掃完所有持股
         _tbl_rows = []
+        _enriched_accounts = {e.get("account", "預設帳號") for e in enriched}
         for e in enriched:
             _arrow = "▲" if e["pnl"] and e["pnl"] > 0 else ("▼" if e["pnl"] and e["pnl"] < 0 else "")
             _row = {"股票": f"{e['name']}（{e['code']}）"}
-            if len(accounts) > 1:
+            if len(_enriched_accounts) > 1:
                 _row["帳號"] = e.get("account", "預設帳號")
             _row["現價"]  = f"NT$ {e['current']:,.1f}" if e["current"] else "—"
             _row["損益"]  = f"{_arrow} {e['pnl']:+,.0f}" if e["pnl"] is not None else "—"

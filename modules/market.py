@@ -53,7 +53,7 @@ def get_ohlc_batch(tickers: tuple, period: str = "1mo") -> dict:
 @st.cache_data(ttl=60)
 def get_current_prices(tickers: tuple) -> dict:
     """只拉現價，5 天資料，速度比 get_all_prices 快（用於持倉頁）。"""
-    raw = yf.download(list(tickers), period="5d", auto_adjust=True, progress=False)
+    raw = yf.download(list(tickers), period="10d", auto_adjust=True, progress=False)
     close_raw = raw["Close"].ffill()
     if isinstance(close_raw, pd.Series):
         close_raw = close_raw.to_frame(name=tickers[0])
