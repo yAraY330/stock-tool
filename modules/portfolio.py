@@ -80,13 +80,24 @@ def get_holdings() -> list:
 
 
 def add_holding(code: str, name: str, shares: float, avg_cost: float,
-                date: str = "", note: str = "", account: str = "預設帳號") -> None:
+                date: str = "", note: str = "", account: str = "預設帳號",
+                stop_profit: float = 0.0, stop_loss: float = 0.0,
+                buy_reason: str = "", dividends: float = 0.0) -> None:
     data = _load()
-    data["holdings"].append({
+    entry: dict = {
         "code": code, "name": name,
         "shares": shares, "avg_cost": avg_cost,
         "date": date, "note": note, "account": account,
-    })
+    }
+    if stop_profit > 0:
+        entry["stop_profit"] = stop_profit
+    if stop_loss > 0:
+        entry["stop_loss"] = stop_loss
+    if buy_reason:
+        entry["buy_reason"] = buy_reason
+    if dividends > 0:
+        entry["dividends"] = dividends
+    data["holdings"].append(entry)
     _save(data)
 
 
@@ -165,6 +176,39 @@ def remove_from_watchlist(idx: int) -> None:
     if 0 <= idx < len(data["watchlist"]):
         data["watchlist"].pop(idx)
         _save(data)
+
+
+# ── 賣出記錄 ──────────────────────────────────────────────────
+def get_sold() -> list:
+    return _load().get("sold", [])
+
+
+def sell_holding(idx: int, sell_price: float, sell_date: str,
+                 shares_to_sell: float = 0.0) -> None:
+    data = _load()
+    if not (0 <= idx < len(data["holdings"])):
+        return
+    h = data["holdings"][idx]
+    actual = min(shares_to_sell if shares_to_sell > 0 else h["shares"], h["shares"])
+    data.setdefault("sold", []).append({
+        "code":       h["code"],
+        "name":       h["name"],
+        "shares":     actual,
+        "avg_cost":   h["avg_cost"],
+        "sell_price": sell_price,
+        "buy_date":   h.get("date", ""),
+        "sell_date":  sell_date,
+        "account":    h.get("account", "預設帳號"),
+        "buy_reason": h.get("buy_reason", ""),
+        "dividends":  h.get("dividends", 0.0),
+        "pnl":        round((sell_price - h["avg_cost"]) * actual, 2),
+    })
+    remaining = round(h["shares"] - actual, 6)
+    if remaining <= 0:
+        data["holdings"].pop(idx)
+    else:
+        data["holdings"][idx]["shares"] = remaining
+    _save(data)
 
 
 # ── 速覽表額外追蹤 ────────────────────────────────────────────

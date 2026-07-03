@@ -63,7 +63,10 @@ def get_current_prices(tickers: tuple) -> dict:
         prices = close[ticker].dropna()
         if prices.empty:
             continue
-        result[ticker] = {"price": round(float(prices.iloc[-1]), 1)}
+        p_now  = float(prices.iloc[-1])
+        p_prev = float(prices.iloc[-2]) if len(prices) >= 2 else None
+        today_pct = round((p_now - p_prev) / p_prev * 100, 2) if p_prev else None
+        result[ticker] = {"price": round(p_now, 1), "today_pct": today_pct}
     return result
 
 
