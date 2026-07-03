@@ -1,0 +1,14 @@
+# 個資與憑證 — 絕對不能上傳
+.streamlit/secrets.toml
+portfolio.json
+.env
+
+# Python 快取
+__pycache__/
+modules/__pycache__/
+*.pyc
+*.pyo
+
+# 系統檔
+.DS_Store
+Thumbs.db
