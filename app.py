@@ -564,10 +564,6 @@ with tab2:
                 sv_prices = get_current_prices(sv_all_tickers)
             except Exception:
                 sv_prices = {}
-            try:
-                sv_ohlc = get_ohlc_batch(sv_all_tickers)
-            except Exception:
-                sv_ohlc = {}
 
         # ── 持倉速覽表 ──
         if sv_holdings:
@@ -589,7 +585,14 @@ with tab2:
             st.dataframe(pd.DataFrame(sv_rows), use_container_width=True, hide_index=True)
 
         # ── K 線圖（持倉在前，額外追蹤在後，兩欄並排）──
-        st.subheader("K 線圖（近一個月）")
+        _period_map = {"當日": ("1d", "15m"), "週": ("5d", "1d"), "月": ("1mo", "1d")}
+        sv_period_sel = st.radio("K 線區間", list(_period_map), horizontal=True, index=2)
+        _kline_period, _kline_interval = _period_map[sv_period_sel]
+        try:
+            sv_ohlc = get_ohlc_batch(sv_all_tickers, period=_kline_period, interval=_kline_interval)
+        except Exception:
+            sv_ohlc = {}
+        st.subheader(f"K 線圖（{sv_period_sel}）")
         sv_display, sv_seen = [], set()
         for h in sv_holdings:
             if h["code"] not in sv_seen:

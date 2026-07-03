@@ -30,9 +30,9 @@ def get_all_prices(tickers: tuple) -> dict:
 
 
 @st.cache_data(ttl=300)
-def get_ohlc_batch(tickers: tuple, period: str = "1mo") -> dict:
+def get_ohlc_batch(tickers: tuple, period: str = "1mo", interval: str = "1d") -> dict:
     """Returns {ticker: DataFrame(Open,High,Low,Close)} for K-line charts."""
-    raw = yf.download(list(tickers), period=period, auto_adjust=True, progress=False)
+    raw = yf.download(list(tickers), period=period, interval=interval, auto_adjust=True, progress=False)
     is_single = len(tickers) == 1
     result = {}
     for ticker in tickers:
