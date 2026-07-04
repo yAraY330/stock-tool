@@ -368,15 +368,44 @@ with tab1:
             else [e for e in all_enriched if e.get("account", "預設帳號") == selected_account]
         )
 
-        # 排序
+        # ── 群組化（依代碼合併多筆交易）──
+        _seen_codes: list[str] = []
+        _grp: dict[str, list] = {}
+        for _e0 in enriched:
+            _c0 = _e0["code"]
+            if _c0 not in _grp:
+                _grp[_c0] = []
+                _seen_codes.append(_c0)
+            _grp[_c0].append(_e0)
+
+        _gsumm: dict[str, dict] = {}
+        for _c0 in _seen_codes:
+            _lots0   = _grp[_c0]
+            _ts0     = sum(_e0["shares"] for _e0 in _lots0)
+            _tc0     = sum(_e0["cost_basis"] for _e0 in _lots0)
+            _wa0     = _tc0 / _ts0 if _ts0 else 0
+            _priced0 = [_e0 for _e0 in _lots0 if _e0["current"] is not None]
+            _cur0    = _priced0[0]["current"] if _priced0 else None
+            _tv0     = _ts0 * _cur0 if _cur0 else None
+            _tpg0    = _tv0 - _tc0 if _tv0 is not None else None
+            _gp0     = (_cur0 - _wa0) / _wa0 * 100 if (_cur0 and _wa0) else None
+            _gsumm[_c0] = {
+                "name": _lots0[0]["name"], "ticker": _lots0[0]["ticker"],
+                "tot_shares": _ts0, "tot_cost": _tc0, "w_avg": _wa0,
+                "cur_price": _cur0, "tot_val": _tv0, "tot_pnl": _tpg0, "g_pct": _gp0,
+            }
+
+        # 排序（群組層級）
         if sort_mode == "損益高→低":
-            enriched = sorted(enriched,
-                key=lambda e: e["pnl"] if e["pnl"] is not None else float("-inf"), reverse=True)
+            _seen_codes = sorted(_seen_codes,
+                key=lambda _c: _gsumm[_c]["tot_pnl"] if _gsumm[_c]["tot_pnl"] is not None else float("-inf"),
+                reverse=True)
         elif sort_mode == "帳號分組":
-            enriched = sorted(enriched, key=lambda e: e.get("account", ""))
+            _seen_codes = sorted(_seen_codes,
+                key=lambda _c: _grp[_c][0].get("account", ""))
         elif sort_mode == "最愛優先":
-            enriched = sorted(enriched,
-                key=lambda e: (0 if e["code"] in favorites else 1, e.get("account", "")))
+            _seen_codes = sorted(_seen_codes,
+                key=lambda _c: (0 if _c in favorites else 1, _grp[_c][0].get("account", "")))
 
         # ── 總覽 ──
         total_cost  = sum(e["cost_basis"] for e in enriched)
@@ -391,33 +420,33 @@ with tab1:
         c2.metric(f"{label_prefix}總市值",   f"NT$ {total_value:,.0f}" if total_value else "—")
         if total_pnl is not None:
             c3.metric("未實現損益", f"NT$ {total_pnl:+,.0f}", delta=f"{total_pct:+.2f}%")
-        c4.metric("持有檔數", f"{len({e['code'] for e in enriched})} 支")
+        c4.metric("持有檔數", f"{len(_seen_codes)} 支")
 
-        # ── 今日結算 ──
-        today_pnl_total = sum(
-            (prices_map.get(e["ticker"], {}).get("today_pct") or 0) / 100
-            * (e["current"] or 0) * e["shares"]
-            for e in enriched if e["current"]
-        )
+        # ── 今日結算（以股計算，避免多筆重複）──
+        today_pnl_total = 0.0
+        for _c0 in _seen_codes:
+            _gs0  = _gsumm[_c0]
+            _tdp0 = prices_map.get(_gs0["ticker"], {}).get("today_pct")
+            if _tdp0 and _gs0["cur_price"]:
+                today_pnl_total += _tdp0 / 100 * _gs0["cur_price"] * _gs0["tot_shares"]
         with st.expander(f"📈 今日結算　{'▲' if today_pnl_total >= 0 else '▼'} NT$ {today_pnl_total:+,.0f}"):
-            for e in enriched:
-                tp = prices_map.get(e["ticker"], {}).get("today_pct")
-                if tp is None or not e["current"]:
+            for _c0 in _seen_codes:
+                _gs0  = _gsumm[_c0]
+                _tdp0 = prices_map.get(_gs0["ticker"], {}).get("today_pct")
+                if _tdp0 is None or not _gs0["cur_price"]:
                     continue
-                day_pnl = tp / 100 * e["current"] * e["shares"]
-                arrow   = "▲" if tp > 0 else "▼"
-                st.caption(
-                    f"{e['name']}（{e['code']}）　"
-                    f"{arrow} {abs(tp):.2f}%　今日 {day_pnl:+,.0f} 元"
-                )
+                _day0  = _tdp0 / 100 * _gs0["cur_price"] * _gs0["tot_shares"]
+                _arr0  = "▲" if _tdp0 > 0 else "▼"
+                st.caption(f"{_gs0['name']}（{_c0}）　{_arr0} {abs(_tdp0):.2f}%　今日 {_day0:+,.0f} 元")
 
-        # ── 集中度警示 ──
+        # ── 集中度警示（以股計算）──
         if total_value:
-            for e in enriched:
-                if e["current_value"] and e["current_value"] / total_value > 0.4:
+            for _c0 in _seen_codes:
+                _gs0 = _gsumm[_c0]
+                if _gs0["tot_val"] and _gs0["tot_val"] / total_value > 0.4:
                     st.warning(
-                        f"⚠️ **集中度警示**：{e['name']}（{e['code']}）"
-                        f"佔總市值 {e['current_value']/total_value*100:.1f}%，超過 40%，注意風險集中。"
+                        f"⚠️ **集中度警示**：{_gs0['name']}（{_c0}）"
+                        f"佔總市值 {_gs0['tot_val']/total_value*100:.1f}%，超過 40%，注意風險集中。"
                     )
 
         # ── 圓餅圖：全部帳號→N 個，單帳號→1 個 ──
@@ -435,216 +464,277 @@ with tab1:
             if by_code:
                 st.plotly_chart(_make_pie(by_code, "持倉分配（市值比例）"), use_container_width=True)
 
-        # ── 持倉明細 ──
+        # ── 持倉明細（群組顯示）──
         st.subheader("持倉明細")
 
-        for e in enriched:
-            real_idx = e["real_idx"]
-            pnl      = e["pnl"]
-            pnl_pct  = e["pnl_pct"]
-            is_fav   = e["code"] in favorites
-            fav_char = "★" if is_fav else "☆"
-            icon     = "🟢" if pnl and pnl > 0 else ("🔴" if pnl and pnl < 0 else "⚪")
-            pnl_str  = f"　{pnl:+,.0f} 元（{pnl_pct:+.2f}%）" if pnl is not None else ""
-            acct_tag = f"［{e.get('account', '預設帳號')}］　" if selected_account == "全部帳號" else ""
-            title    = f"{fav_char} {icon} {acct_tag}{e['name']}（{e['code']}）　{e['shares']:.4g} 股{pnl_str}"
+        for _code in _seen_codes:
+            _lots   = _grp[_code]
+            _gs     = _gsumm[_code]
+            _is_fav = _code in favorites
 
-            with st.expander(title):
-                # ── 功能列（3 + 2 兩排，手機友善）──
-                ba, bb, bc = st.columns(3)
-                with ba:
-                    fav_label = "★ 已收藏" if is_fav else "☆ 最愛"
-                    if st.button(fav_label, key=f"fav_{real_idx}", use_container_width=True):
-                        toggle_favorite(e["code"])
-                        st.rerun()
-                with bb:
-                    is_editing = st.session_state.editing_idx == real_idx
-                    edit_label = "✏️ 收起" if is_editing else "✏️ 編輯"
-                    if st.button(edit_label, key=f"edit_btn_{real_idx}", use_container_width=True):
-                        st.session_state.editing_idx = None if is_editing else real_idx
-                        st.rerun()
-                with bc:
-                    eval_key    = f"show_eval_{real_idx}"
-                    eval_active = st.session_state.get(eval_key, False)
-                    eval_label  = "📊 收起" if eval_active else "📊 基本面"
-                    if st.button(eval_label, key=f"eval_btn_{real_idx}", use_container_width=True):
-                        st.session_state[eval_key] = not eval_active
-                        st.rerun()
+            _fav_char  = "★" if _is_fav else "☆"
+            _icon      = ("🟢" if _gs["tot_pnl"] and _gs["tot_pnl"] > 0
+                          else ("🔴" if _gs["tot_pnl"] and _gs["tot_pnl"] < 0 else "⚪"))
+            _pnl_str   = (f"　{_gs['tot_pnl']:+,.0f} 元（{_gs['g_pct']:+.2f}%）"
+                          if _gs["tot_pnl"] is not None else "")
+            _multi_tag = f"　{len(_lots)} 筆" if len(_lots) > 1 else ""
+            if selected_account == "全部帳號":
+                _acct_str = "［" + "/".join(sorted({_e["account"] for _e in _lots if _e.get("account")} or {"預設帳號"})) + "］　"
+            else:
+                _acct_str = ""
+            _title = (f"{_fav_char} {_icon} {_acct_str}{_gs['name']}（{_code}）"
+                      f"　{_gs['tot_shares']:.4g} 股{_multi_tag}{_pnl_str}")
 
-                bd, be, bf = st.columns(3)
-                with bd:
-                    clean = e["code"].replace(".TW", "")
-                    if st.button("🔍 評估頁", key=f"pe_{real_idx}", use_container_width=True):
-                        st.session_state.eval_ticker = clean
+            with st.expander(_title):
+                # ── 群組操作列：收藏、評估頁、基本面 ──
+                _gba, _gbb, _gbc = st.columns(3)
+                with _gba:
+                    _fl = "★ 已收藏" if _is_fav else "☆ 最愛"
+                    if st.button(_fl, key=f"fav_grp_{_code}", use_container_width=True):
+                        toggle_favorite(_code)
+                        st.rerun()
+                with _gbb:
+                    if st.button("🔍 評估頁", key=f"pe_grp_{_code}", use_container_width=True):
+                        st.session_state.eval_ticker = _code.replace(".TW", "")
                         st.success("請切換到「股票評估」頁面")
-                with be:
-                    sell_key = f"show_sell_{real_idx}"
-                    if sell_key not in st.session_state:
-                        st.session_state[sell_key] = False
-                    sell_label = "💰 收起" if st.session_state[sell_key] else "💰 賣出"
-                    if st.button(sell_label, key=f"sell_btn_{real_idx}", use_container_width=True):
-                        st.session_state[sell_key] = not st.session_state[sell_key]
-                        st.rerun()
-                with bf:
-                    if st.button("🗑️ 刪除", key=f"del_{real_idx}", use_container_width=True):
-                        remove_holding(real_idx)
-                        if st.session_state.editing_idx == real_idx:
-                            st.session_state.editing_idx = None
+                with _gbc:
+                    _eval_key    = f"show_eval_grp_{_code}"
+                    _eval_active = st.session_state.get(_eval_key, False)
+                    _eval_label  = "📊 收起" if _eval_active else "📊 基本面"
+                    if st.button(_eval_label, key=f"eval_btn_grp_{_code}", use_container_width=True):
+                        st.session_state[_eval_key] = not _eval_active
                         st.rerun()
 
-                # ── 賣出表單 ──
-                if st.session_state.get(f"show_sell_{real_idx}", False):
-                    st.divider()
-                    with st.form(f"sell_form_{real_idx}"):
-                        sf1, sf2, sf3 = st.columns(3)
-                        with sf1:
-                            s_shares = st.number_input(
-                                "賣出股數", min_value=0.01,
-                                max_value=float(e["shares"]), value=float(e["shares"]), step=1.0
-                            )
-                        with sf2:
-                            s_price = st.number_input(
-                                "賣出均價", min_value=0.01,
-                                value=float(e["current"] or e["avg_cost"]), step=0.01, format="%.2f"
-                            )
-                        with sf3:
-                            s_date = st.date_input("賣出日期", value=datetime.date.today())
-                        sell_ok = st.form_submit_button("確認賣出", type="primary", use_container_width=True)
-                    if sell_ok:
-                        sell_holding(real_idx, s_price, str(s_date), s_shares)
-                        st.session_state[f"show_sell_{real_idx}"] = False
-                        st.success(f"✅ 已記錄賣出 {s_shares:.4g} 股，損益 NT$ {(s_price - e['avg_cost']) * s_shares:+,.0f}")
-                        st.rerun()
+                # ── 群組損益概覽 ──
+                if _gs["tot_pnl"] is not None:
+                    _gc1, _gc2 = st.columns(2)
+                    _gc1.metric("合計未實現損益",
+                                f"NT$ {_gs['tot_pnl']:+,.0f}", delta=f"{_gs['g_pct']:+.2f}%")
+                    _tdp2 = prices_map.get(_gs["ticker"], {}).get("today_pct")
+                    if _tdp2 is not None and _gs["cur_price"]:
+                        _day2 = _tdp2 / 100 * _gs["cur_price"] * _gs["tot_shares"]
+                        _gc2.metric("今日損益（合計）",
+                                    f"NT$ {_day2:+,.0f}", delta=f"{_tdp2:+.2f}%")
 
-                # ── 編輯模式 ──
-                if st.session_state.editing_idx == real_idx:
-                    st.divider()
-                    current_acct = e.get("account", "預設帳號")
-                    acct_idx = accounts.index(current_acct) if current_acct in accounts else 0
-                    try:
-                        default_date = datetime.date.fromisoformat(e.get("date", ""))
-                    except (ValueError, TypeError):
-                        default_date = datetime.date.today()
-
-                    with st.form(f"edit_form_{real_idx}"):
-                        ef1, ef2, ef3, ef4 = st.columns(4)
-                        with ef1:
-                            e_acct   = st.selectbox("帳號", accounts, index=acct_idx)
-                        with ef2:
-                            e_shares = st.number_input("股數", min_value=0.01,
-                                                        value=float(e["shares"]), step=1.0)
-                        with ef3:
-                            e_cost   = st.number_input("平均成本", min_value=0.01,
-                                                        value=float(e["avg_cost"]),
-                                                        step=0.01, format="%.2f")
-                        with ef4:
-                            e_date   = st.date_input("買入日期", value=default_date)
-                        ef5, ef6, ef7 = st.columns(3)
-                        with ef5:
-                            e_sp = st.number_input("停利價（0=未設）", min_value=0.0,
-                                                    value=float(e.get("stop_profit", 0)),
-                                                    step=0.5, format="%.2f")
-                        with ef6:
-                            e_sl = st.number_input("停損價（0=未設）", min_value=0.0,
-                                                    value=float(e.get("stop_loss", 0)),
-                                                    step=0.5, format="%.2f")
-                        with ef7:
-                            e_div = st.number_input("已收股利（元）", min_value=0.0,
-                                                     value=float(e.get("dividends", 0)),
-                                                     step=100.0, format="%.0f")
-                        e_reason = st.text_input("買進理由", value=e.get("buy_reason", ""),
-                                                  placeholder="例：本益比偏低、財報轉機")
-                        sv_col, cl_col = st.columns(2)
-                        with sv_col:
-                            save_clicked   = st.form_submit_button("💾 儲存",
-                                                type="primary", use_container_width=True)
-                        with cl_col:
-                            cancel_clicked = st.form_submit_button("✖ 取消",
-                                                use_container_width=True)
-
-                    if save_clicked:
-                        update_holding(real_idx, shares=e_shares, avg_cost=e_cost,
-                                       account=e_acct, date=str(e_date),
-                                       stop_profit=e_sp, stop_loss=e_sl,
-                                       dividends=e_div, buy_reason=e_reason)
-                        st.session_state.editing_idx = None
-                        st.rerun()
-                    if cancel_clicked:
-                        st.session_state.editing_idx = None
-                        st.rerun()
-
-                else:
-                    # ── 一般資訊 ──
-                    ca, cb = st.columns([3, 2])
-                    with ca:
-                        st.markdown(f"**帳號：** {e.get('account', '預設帳號')}")
-                        st.markdown(f"**平均成本：** NT$ {e['avg_cost']:,.2f}")
-                        price_str = f"NT$ {e['current']:,.2f}" if e["current"] else "無法取得"
-                        st.markdown(f"**現價：** {price_str}")
-                        st.markdown(f"**持股成本：** NT$ {e['cost_basis']:,.0f}")
-                        if e["current_value"]:
-                            st.markdown(f"**目前市值：** NT$ {e['current_value']:,.0f}")
-                        if e["date"]:
-                            st.markdown(f"**買入日期：** {e['date']}")
-                        if e["note"]:
-                            st.markdown(f"**備註：** {e['note']}")
-                        if e.get("buy_reason"):
-                            st.markdown(f"**買進理由：** {e['buy_reason']}")
-                        if e.get("stop_profit"):
-                            st.markdown(f"**停利價：** NT$ {e['stop_profit']:,.2f}")
-                        if e.get("stop_loss"):
-                            st.markdown(f"**停損價：** NT$ {e['stop_loss']:,.2f}")
-                        if e.get("dividends"):
-                            total_ret = (pnl + e["dividends"]) if pnl else e["dividends"]
-                            st.markdown(f"**已收股利：** NT$ {e['dividends']:,.0f}　（含股利損益 NT$ {total_ret:+,.0f}）")
-                    with cb:
-                        if pnl is not None:
-                            st.metric("未實現損益", f"NT$ {pnl:+,.0f}", delta=f"{pnl_pct:+.2f}%")
-                        _tp = prices_map.get(e["ticker"], {}).get("today_pct")
-                        if _tp is not None and e["current"]:
-                            _day_pnl = _tp / 100 * e["current"] * e["shares"]
-                            st.metric("今日損益", f"NT$ {_day_pnl:+,.0f}", delta=f"{_tp:+.2f}%")
-
-                    # ── 理由審視（大跌時提醒）──
-                    if pnl_pct is not None and pnl_pct < -8 and e.get("buy_reason"):
-                        st.warning(
-                            f"📋 **這支股票已下跌 {pnl_pct:.1f}%，當初買進理由是：**\n\n"
-                            f"> {e['buy_reason']}\n\n**這個理由現在還成立嗎？**"
-                        )
-
-                # ── K 線圖（自動顯示，資料已批次快取）──
-                if e["ticker"] in ohlc_map:
+                # ── K 線圖（每股一次）──
+                if _gs["ticker"] in ohlc_map:
                     st.caption("近一個月走勢（K 線）")
                     st.plotly_chart(
-                        _make_candlestick(ohlc_map[e["ticker"]]),
-                        use_container_width=True, key=f"kline_{real_idx}",
+                        _make_candlestick(ohlc_map[_gs["ticker"]]),
+                        use_container_width=True, key=f"kline_grp_{_code}",
                     )
 
-                # ── 內嵌基本面（按鈕展開）──
-                if st.session_state.get(f"show_eval_{real_idx}", False):
+                # ── 基本面（群組層級）──
+                if st.session_state.get(f"show_eval_grp_{_code}", False):
                     st.divider()
                     with st.spinner("載入基本面資料..."):
                         try:
-                            info = get_stock_info(e["ticker"])
+                            _info = get_stock_info(_gs["ticker"])
                         except Exception:
-                            info = None
-                    if info:
-                        pos = price_position(info)
-                        if pos:
-                            progress = int(pos["position_pct"])
-                            p1, p2, p3 = st.columns(3)
-                            p1.metric("52 週高", f"NT$ {pos['high']:,.1f}")
-                            p2.metric("目前位置", f"{progress}%")
-                            p3.metric("52 週低", f"NT$ {pos['low']:,.1f}")
-                            st.progress(min(max(progress / 100, 0.0), 1.0))
-                            st.caption(pos["label"])
-                        is_etf = info.get("quote_type") == "ETF"
-                        if is_etf:
+                            _info = None
+                    if _info:
+                        _pos = price_position(_info)
+                        if _pos:
+                            _prog = int(_pos["position_pct"])
+                            _p1, _p2, _p3 = st.columns(3)
+                            _p1.metric("52 週高", f"NT$ {_pos['high']:,.1f}")
+                            _p2.metric("目前位置", f"{_prog}%")
+                            _p3.metric("52 週低", f"NT$ {_pos['low']:,.1f}")
+                            st.progress(min(max(_prog / 100, 0.0), 1.0))
+                            st.caption(_pos["label"])
+                        if _info.get("quote_type") == "ETF":
                             st.info("📌 ETF：本益比、淨利率等指標不適用")
-                        for m in evaluate(info)[:4]:
-                            st.caption(f"**{m['label']}**　{m['explanation']}")
+                        for _m in evaluate(_info)[:4]:
+                            st.caption(f"**{_m['label']}**　{_m['explanation']}")
                     else:
                         st.warning("無法載入基本面資料")
+
+                # ── 各筆買入明細 ──
+                st.divider()
+                if len(_lots) > 1:
+                    _wp = f"NT$ {_gs['cur_price']:,.2f}" if _gs["cur_price"] else "—"
+                    st.caption(
+                        f"**{len(_lots)} 筆買入紀錄**　加權均價 NT$ {_gs['w_avg']:,.2f}　現價 {_wp}"
+                    )
+
+                for _li, _e in enumerate(_lots):
+                    _real_idx = _e["real_idx"]
+                    _pnl      = _e["pnl"]
+                    _pnl_pct  = _e["pnl_pct"]
+
+                    if len(_lots) > 1:
+                        # 多筆：精簡標頭 + 細節
+                        _lpnl = (f"　{_pnl:+,.0f}（{_pnl_pct:+.2f}%）"
+                                 if _pnl is not None else "")
+                        st.markdown(
+                            f"**第 {_li + 1} 筆：** "
+                            f"{_e['shares']:.4g} 股 ＠ NT$ {_e['avg_cost']:,.2f}　"
+                            f"買入 {_e.get('date', '—')}　"
+                            f"{_e.get('account', '預設帳號')}{_lpnl}"
+                        )
+                        _extras = []
+                        if _e.get("buy_reason"):
+                            _extras.append(f"理由：{_e['buy_reason']}")
+                        if _e.get("stop_profit"):
+                            _extras.append(f"停利 NT${_e['stop_profit']:,.2f}")
+                        if _e.get("stop_loss"):
+                            _extras.append(f"停損 NT${_e['stop_loss']:,.2f}")
+                        if _e.get("dividends"):
+                            _extras.append(f"已收股利 NT${_e['dividends']:,.0f}")
+                        if _extras:
+                            st.caption("　　" + "　｜　".join(_extras))
+                        if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
+                            st.warning(
+                                f"📋 **第 {_li+1} 筆已下跌 {_pnl_pct:.1f}%，買進理由：**\n\n"
+                                f"> {_e['buy_reason']}\n\n**這個理由現在還成立嗎？**"
+                            )
+                    else:
+                        # 單筆：完整資訊
+                        _ca, _cb = st.columns([3, 2])
+                        with _ca:
+                            st.markdown(f"**帳號：** {_e.get('account', '預設帳號')}")
+                            st.markdown(f"**平均成本：** NT$ {_e['avg_cost']:,.2f}")
+                            _ps = f"NT$ {_e['current']:,.2f}" if _e["current"] else "無法取得"
+                            st.markdown(f"**現價：** {_ps}")
+                            st.markdown(f"**持股成本：** NT$ {_e['cost_basis']:,.0f}")
+                            if _e["current_value"]:
+                                st.markdown(f"**目前市值：** NT$ {_e['current_value']:,.0f}")
+                            if _e["date"]:
+                                st.markdown(f"**買入日期：** {_e['date']}")
+                            if _e["note"]:
+                                st.markdown(f"**備註：** {_e['note']}")
+                            if _e.get("buy_reason"):
+                                st.markdown(f"**買進理由：** {_e['buy_reason']}")
+                            if _e.get("stop_profit"):
+                                st.markdown(f"**停利價：** NT$ {_e['stop_profit']:,.2f}")
+                            if _e.get("stop_loss"):
+                                st.markdown(f"**停損價：** NT$ {_e['stop_loss']:,.2f}")
+                            if _e.get("dividends"):
+                                _tr = (_pnl + _e["dividends"]) if _pnl else _e["dividends"]
+                                st.markdown(
+                                    f"**已收股利：** NT$ {_e['dividends']:,.0f}"
+                                    f"　（含股利損益 NT$ {_tr:+,.0f}）"
+                                )
+                        with _cb:
+                            if _pnl is not None:
+                                st.metric("未實現損益", f"NT$ {_pnl:+,.0f}", delta=f"{_pnl_pct:+.2f}%")
+                        if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
+                            st.warning(
+                                f"📋 **這支股票已下跌 {_pnl_pct:.1f}%，當初買進理由是：**\n\n"
+                                f"> {_e['buy_reason']}\n\n**這個理由現在還成立嗎？**"
+                            )
+
+                    # ── 操作按鈕（每筆都有）──
+                    _ba, _bb, _bc = st.columns(3)
+                    with _ba:
+                        _is_editing = st.session_state.editing_idx == _real_idx
+                        _el = "✏️ 收起" if _is_editing else "✏️ 編輯"
+                        if st.button(_el, key=f"edit_btn_{_real_idx}", use_container_width=True):
+                            st.session_state.editing_idx = None if _is_editing else _real_idx
+                            st.rerun()
+                    with _bb:
+                        _sk = f"show_sell_{_real_idx}"
+                        if _sk not in st.session_state:
+                            st.session_state[_sk] = False
+                        _sl2 = "💰 收起" if st.session_state[_sk] else "💰 賣出"
+                        if st.button(_sl2, key=f"sell_btn_{_real_idx}", use_container_width=True):
+                            st.session_state[_sk] = not st.session_state[_sk]
+                            st.rerun()
+                    with _bc:
+                        if st.button("🗑️ 刪除", key=f"del_{_real_idx}", use_container_width=True):
+                            remove_holding(_real_idx)
+                            if st.session_state.editing_idx == _real_idx:
+                                st.session_state.editing_idx = None
+                            st.rerun()
+
+                    # ── 賣出表單 ──
+                    if st.session_state.get(f"show_sell_{_real_idx}", False):
+                        st.divider()
+                        with st.form(f"sell_form_{_real_idx}"):
+                            _sf1, _sf2, _sf3 = st.columns(3)
+                            with _sf1:
+                                _s_shares = st.number_input(
+                                    "賣出股數", min_value=0.01,
+                                    max_value=float(_e["shares"]),
+                                    value=float(_e["shares"]), step=1.0
+                                )
+                            with _sf2:
+                                _s_price = st.number_input(
+                                    "賣出均價", min_value=0.01,
+                                    value=float(_e["current"] or _e["avg_cost"]),
+                                    step=0.01, format="%.2f"
+                                )
+                            with _sf3:
+                                _s_date = st.date_input("賣出日期", value=datetime.date.today())
+                            _sell_ok = st.form_submit_button("確認賣出", type="primary", use_container_width=True)
+                        if _sell_ok:
+                            sell_holding(_real_idx, _s_price, str(_s_date), _s_shares)
+                            st.session_state[f"show_sell_{_real_idx}"] = False
+                            st.success(
+                                f"✅ 已記錄賣出 {_s_shares:.4g} 股，"
+                                f"損益 NT$ {(_s_price - _e['avg_cost']) * _s_shares:+,.0f}"
+                            )
+                            st.rerun()
+
+                    # ── 編輯表單 ──
+                    if st.session_state.editing_idx == _real_idx:
+                        st.divider()
+                        _cur_acct = _e.get("account", "預設帳號")
+                        _ai = accounts.index(_cur_acct) if _cur_acct in accounts else 0
+                        try:
+                            _def_date = datetime.date.fromisoformat(_e.get("date", ""))
+                        except (ValueError, TypeError):
+                            _def_date = datetime.date.today()
+
+                        with st.form(f"edit_form_{_real_idx}"):
+                            _ef1, _ef2, _ef3, _ef4 = st.columns(4)
+                            with _ef1:
+                                _e_acct   = st.selectbox("帳號", accounts, index=_ai)
+                            with _ef2:
+                                _e_shares = st.number_input("股數", min_value=0.01,
+                                                             value=float(_e["shares"]), step=1.0)
+                            with _ef3:
+                                _e_cost   = st.number_input("平均成本", min_value=0.01,
+                                                             value=float(_e["avg_cost"]),
+                                                             step=0.01, format="%.2f")
+                            with _ef4:
+                                _e_date   = st.date_input("買入日期", value=_def_date)
+                            _ef5, _ef6, _ef7 = st.columns(3)
+                            with _ef5:
+                                _e_sp = st.number_input("停利價（0=未設）", min_value=0.0,
+                                                         value=float(_e.get("stop_profit", 0)),
+                                                         step=0.5, format="%.2f")
+                            with _ef6:
+                                _e_sl = st.number_input("停損價（0=未設）", min_value=0.0,
+                                                         value=float(_e.get("stop_loss", 0)),
+                                                         step=0.5, format="%.2f")
+                            with _ef7:
+                                _e_div = st.number_input("已收股利（元）", min_value=0.0,
+                                                          value=float(_e.get("dividends", 0)),
+                                                          step=100.0, format="%.0f")
+                            _e_reason = st.text_input("買進理由", value=_e.get("buy_reason", ""),
+                                                       placeholder="例：本益比偏低、財報轉機")
+                            _sv_col, _cl_col = st.columns(2)
+                            with _sv_col:
+                                _save_clicked   = st.form_submit_button("💾 儲存",
+                                                      type="primary", use_container_width=True)
+                            with _cl_col:
+                                _cancel_clicked = st.form_submit_button("✖ 取消",
+                                                      use_container_width=True)
+
+                        if _save_clicked:
+                            update_holding(_real_idx, shares=_e_shares, avg_cost=_e_cost,
+                                           account=_e_acct, date=str(_e_date),
+                                           stop_profit=_e_sp, stop_loss=_e_sl,
+                                           dividends=_e_div, buy_reason=_e_reason)
+                            st.session_state.editing_idx = None
+                            st.rerun()
+                        if _cancel_clicked:
+                            st.session_state.editing_idx = None
+                            st.rerun()
+
+                    if len(_lots) > 1 and _li < len(_lots) - 1:
+                        st.divider()
 
         # ── 已賣出紀錄 ──
         _sold = get_sold()
