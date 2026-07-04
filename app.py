@@ -618,6 +618,10 @@ with tab1:
                         with _cb:
                             if _pnl is not None:
                                 st.metric("未實現損益", f"NT$ {_pnl:+,.0f}", delta=f"{_pnl_pct:+.2f}%")
+                            _tp_s = prices_map.get(_e["ticker"], {}).get("today_pct")
+                            if _tp_s is not None and _e["current"]:
+                                _day_s = _tp_s / 100 * _e["current"] * _e["shares"]
+                                st.metric("今日損益", f"NT$ {_day_s:+,.0f}", delta=f"{_tp_s:+.2f}%")
                         if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
                             st.warning(
                                 f"📋 **這支股票已下跌 {_pnl_pct:.1f}%，當初買進理由是：**\n\n"
