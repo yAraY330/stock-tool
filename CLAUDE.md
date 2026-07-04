@@ -7,13 +7,15 @@
 ```
 stock-tool/
 ├── CLAUDE.md
+├── SETUP.md            # 朋友部署自己版本的逐步指南
 ├── requirements.txt
 ├── app.py              # Streamlit 主程式，入口
 ├── modules/
 │   ├── data.py         # 資料拉取（yfinance）
 │   ├── recommender.py  # 新手推薦邏輯
 │   ├── evaluator.py    # 股票評估邏輯
-│   ├── market.py       # 近期熱門：批次拉漲跌幅排行
+│   ├── market.py       # 批次拉報價／K線，含 .TWO fallback
+│   ├── portfolio.py    # 持倉讀寫（本機 JSON 或 Google Sheets）
 │   └── knowledge.py    # 補知識內容（靜態教學資料）
 └── .env.example        # 環境變數範本（若日後加 API key）
 ```

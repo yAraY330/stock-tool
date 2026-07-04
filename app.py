@@ -809,6 +809,18 @@ with tab2:
 with tab3:
     st.header("新增持倉")
 
+    _has_sheets = False
+    try:
+        _has_sheets = "sheet_id" in st.secrets
+    except Exception:
+        pass
+    if not _has_sheets:
+        st.warning(
+            "💾 **資料暫存中** — 目前沒有設定 Google Sheets，"
+            "資料存在本機，App 重新啟動後會消失。"
+            "請參考專案中的 **SETUP.md** 完成 Google Sheets 設定以永久保存資料。"
+        )
+
     st.subheader("手動新增")
     existing_accounts = get_accounts(get_holdings())
     with st.form("add_holding_form", clear_on_submit=True):
