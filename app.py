@@ -1158,6 +1158,7 @@ with tab6:
         st.info("沒有符合條件的標的，請調整篩選條件。")
     else:
         st.success(f"找到 {len(picks)} 個符合條件的標的")
+        _wl_codes = {w["code"] for w in get_watchlist()}
         for p in picks:
             base_code = p["code"].replace(".TWO", "").replace(".TW", "")
             icon = "📊" if p["type"] == "ETF" else "🏢"
@@ -1168,9 +1169,11 @@ with tab6:
                     st.warning(f"⚠️ {p['warning']}")
                 rb1, rb2 = st.columns(2)
                 with rb1:
-                    if st.button("👁️ 加入觀察清單", key=f"rec_wl_{p['code']}", use_container_width=True):
+                    if base_code in _wl_codes:
+                        st.info("✅ 已在觀察清單中")
+                    elif st.button("👁️ 加入觀察清單", key=f"rec_wl_{p['code']}", use_container_width=True):
                         add_to_watchlist(base_code, p["name"], "來自新手推薦")
-                        st.success(f"✅ 已加入觀察清單：{p['name']}")
+                        st.rerun()
                 with rb2:
                     if st.button("🔍 查看評估", key=f"rec_ev_{p['code']}", use_container_width=True):
                         st.session_state.eval_ticker = base_code
