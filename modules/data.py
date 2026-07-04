@@ -5,10 +5,14 @@ import streamlit as st
 
 @st.cache_data(ttl=300)
 def get_stock_info(ticker: str) -> dict:
-    """拉取台股基本資料，ticker 格式如 '0050.TW'"""
-    stock = yf.Ticker(ticker)
-    info = stock.info
-
+    """拉取台股基本資料。.TW 查無報價時自動 fallback 嘗試 .TWO（上櫃）"""
+    info = yf.Ticker(ticker).info
+    if not (info.get("currentPrice") or info.get("regularMarketPrice")):
+        if ticker.endswith(".TW") and not ticker.endswith(".TWO"):
+            alt = ticker[:-3] + ".TWO"
+            alt_info = yf.Ticker(alt).info
+            if alt_info.get("currentPrice") or alt_info.get("regularMarketPrice"):
+                info = alt_info
     return {
         "name": info.get("longName") or info.get("shortName", ticker),
         "price": info.get("currentPrice") or info.get("regularMarketPrice"),
@@ -34,8 +38,8 @@ def get_price_history(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def format_ticker(code: str) -> str:
-    """把使用者輸入的代碼轉成 yfinance 格式"""
+    """把使用者輸入的代碼轉成 yfinance 格式（已含後綴則保留）"""
     code = code.strip().upper()
-    if not code.endswith(".TW"):
-        code = code + ".TW"
-    return code
+    if code.endswith(".TW") or code.endswith(".TWO"):
+        return code
+    return code + ".TW"

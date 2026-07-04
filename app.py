@@ -5,6 +5,8 @@ import pandas as pd
 from modules.data import get_stock_info, get_price_history, format_ticker
 from modules.evaluator import evaluate, price_position
 from modules.market import get_all_prices, get_current_prices, get_ohlc_batch, fmt_pct
+from modules.recommender import get_recommendations, RISK_FILTER, CATEGORIES
+from modules.knowledge import CHAPTERS
 from modules.portfolio import (
     get_holdings, add_holding, remove_holding, rename_account, update_holding,
     get_favorites, toggle_favorite,
@@ -154,10 +156,10 @@ hr {
         letter-spacing: -0.3px;
     }
 
-    /* Tab 文字縮小，讓五個 tab 都放得下 */
+    /* Tab 文字縮小，讓七個 tab 都放得下 */
     .stTabs [data-baseweb="tab"] {
-        padding: 0 5px !important;
-        font-size: 0.68rem !important;
+        padding: 0 3px !important;
+        font-size: 0.6rem !important;
         height: 36px !important;
     }
 
@@ -297,7 +299,7 @@ if _sl_holdings:
     except Exception:
         pass
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估", "🎯 推薦", "📚 知識"])
 
 
 # ── Tab 1: 持倉管理 ───────────────────────────────────────────
@@ -1132,3 +1134,57 @@ with tab5:
             for m in evaluate(info):
                 with st.expander(f"📊 {m['label']}　→　{m['explanation']}"):
                     st.info(f"💬 新手小知識：{m['beginner_tip']}")
+
+
+# ── Tab 6: 新手推薦 ───────────────────────────────────────────
+with tab6:
+    st.header("新手股票推薦")
+    st.caption("根據你的條件篩選台股標的，所有內容僅供參考，不構成投資建議。")
+
+    rf1, rf2, rf3 = st.columns(3)
+    with rf1:
+        rec_risk = st.radio("風險偏好", list(RISK_FILTER.keys()), key="rec_risk")
+    with rf2:
+        rec_goal = st.radio("投資目標", ["長期增值", "被動收入", "短期獲利"], key="rec_goal")
+    with rf3:
+        rec_cat = st.selectbox("股票類別", CATEGORIES, key="rec_cat")
+
+    picks, empty_msg = get_recommendations(rec_risk, rec_goal, rec_cat)
+
+    st.divider()
+    if empty_msg:
+        st.warning(empty_msg)
+    elif not picks:
+        st.info("沒有符合條件的標的，請調整篩選條件。")
+    else:
+        st.success(f"找到 {len(picks)} 個符合條件的標的")
+        for p in picks:
+            base_code = p["code"].replace(".TWO", "").replace(".TW", "")
+            icon = "📊" if p["type"] == "ETF" else "🏢"
+            with st.expander(f"{icon} **{p['name']}**（{base_code}）　{p['dividend']}"):
+                st.markdown(f"**為什麼推薦？** {p['why']}")
+                st.markdown(f"**適合誰？** {p['suitable_for']}")
+                if p.get("warning"):
+                    st.warning(f"⚠️ {p['warning']}")
+                rb1, rb2 = st.columns(2)
+                with rb1:
+                    if st.button("👁️ 加入觀察清單", key=f"rec_wl_{p['code']}", use_container_width=True):
+                        add_to_watchlist(base_code, p["name"], "來自新手推薦")
+                        st.success(f"✅ 已加入觀察清單：{p['name']}")
+                with rb2:
+                    if st.button("🔍 查看評估", key=f"rec_ev_{p['code']}", use_container_width=True):
+                        st.session_state.eval_ticker = base_code
+                        st.success("請切換到「股票評估」頁面")
+
+
+# ── Tab 7: 補知識 ─────────────────────────────────────────────
+with tab7:
+    st.header("台股補知識")
+    st.caption("從零開始學台股，點開每個問題查看解答。")
+
+    for chapter in CHAPTERS:
+        st.subheader(f"{chapter['icon']} {chapter['title']}")
+        for sec in chapter["sections"]:
+            with st.expander(f"❓ {sec['q']}"):
+                st.markdown(sec["a"])
+        st.divider()
