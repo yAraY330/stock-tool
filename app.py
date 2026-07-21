@@ -139,6 +139,13 @@ hr {
     border-color: #cccccc !important;
     color: #000000 !important;
 }
+[data-baseweb="input"] input,
+[data-baseweb="base-input"] input,
+[data-baseweb="textarea"] textarea,
+[data-baseweb="input"] textarea {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
 input[type="text"],
 input[type="number"],
 input[type="password"],
@@ -149,6 +156,12 @@ textarea {
 input::placeholder,
 textarea::placeholder {
     color: #888888 !important;
+}
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea {
+    background-color: #ffffff !important;
+    color: #000000 !important;
 }
 [data-baseweb="select"] > div:first-child {
     background-color: #ffffff !important;
@@ -1002,8 +1015,8 @@ elif page == "⚡ 速覽":
                         add_quick_view_extra(sv_code.strip().upper(), sv_name)
                         st.success(f"✅ 已加入：{sv_name}（{sv_code.strip().upper()}）")
                         st.rerun()
-                except Exception:
-                    st.error("查詢失敗，請確認代碼是否正確")
+                except Exception as _e:
+                    st.error(f"查詢失敗（{sv_ticker_input}）：{_e}")
 
 
 # ── 新增持倉 ─────────────────────────────────────────────────
