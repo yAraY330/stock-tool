@@ -829,27 +829,27 @@ with tab2:
             except Exception:
                 sv_prices = {}
 
-        # ── 持倉速覽表 ──
-        if sv_holdings:
-            sv_rows = []
-            for h in sv_holdings:
-                ticker  = format_ticker(h["code"])
-                cur     = sv_prices.get(ticker, {}).get("price")
-                avg     = h["avg_cost"]
-                shares  = h["shares"]
-                pnl     = (cur - avg) * shares if cur else None
-                pnl_pct = (cur - avg) / avg * 100 if cur else None
-                arrow   = "▲" if pnl and pnl > 0 else ("▼" if pnl and pnl < 0 else "")
-                sv_rows.append({
-                    "股票":  f"{h['name']}（{h['code']}）",
-                    "現價":  f"NT$ {cur:,.1f}" if cur else "—",
-                    "損益":  f"{arrow} {pnl:+,.0f}" if pnl is not None else "—",
-                    "損益%": f"{arrow} {pnl_pct:+.2f}%" if pnl_pct is not None else "—",
-                })
-            st.dataframe(pd.DataFrame(sv_rows), use_container_width=True, hide_index=True)
+        # ── 建立持倉 P&L 查詢表（依代碼合併多筆）──
+        sv_pnl_map = {}
+        for h in sv_holdings:
+            ticker = format_ticker(h["code"])
+            cur    = sv_prices.get(ticker, {}).get("price")
+            code   = h["code"]
+            if code not in sv_pnl_map:
+                sv_pnl_map[code] = {"tot_shares": 0, "tot_cost": 0, "cur": cur}
+            sv_pnl_map[code]["tot_shares"] += h["shares"]
+            sv_pnl_map[code]["tot_cost"]   += h["shares"] * h["avg_cost"]
+        for _sc, _sd in sv_pnl_map.items():
+            _sc_cur = _sd["cur"]
+            if _sc_cur and _sd["tot_shares"]:
+                _sd["tot_val"] = _sc_cur * _sd["tot_shares"]
+                _sd["pnl"]     = _sd["tot_val"] - _sd["tot_cost"]
+                _sd["pnl_pct"] = _sd["pnl"] / _sd["tot_cost"] * 100
+            else:
+                _sd["tot_val"] = _sd["pnl"] = _sd["pnl_pct"] = None
 
-        # ── K 線圖（持倉在前，額外追蹤在後，兩欄並排）──
-        _period_map = {"當日": ("1d", "15m"), "週": ("5d", "1d"), "月": ("1mo", "1d")}
+        # ── K 線區間 ──
+        _period_map   = {"當日": ("1d", "15m"), "週": ("5d", "1d"), "月": ("1mo", "1d")}
         sv_period_sel = st.radio("K 線區間", list(_period_map), horizontal=True, index=2)
         _kline_period, _kline_interval = _period_map[sv_period_sel]
         with st.spinner("載入 K 線資料中..."):
@@ -857,7 +857,8 @@ with tab2:
                 sv_ohlc = get_ohlc_batch(sv_all_tickers, period=_kline_period, interval=_kline_interval)
             except Exception:
                 sv_ohlc = {}
-        st.subheader(f"K 線圖（{sv_period_sel}）")
+
+        # ── 顯示順序：持倉優先，再額外追蹤 ──
         sv_display, sv_seen = [], set()
         for h in sv_holdings:
             if h["code"] not in sv_seen:
@@ -868,25 +869,55 @@ with tab2:
                 sv_display.append({"code": e["code"], "name": e["name"], "is_holding": False})
                 sv_seen.add(e["code"])
 
+        # ── 合併卡片（資訊 + K 線）──
         for i in range(0, len(sv_display), 2):
             cols = st.columns(2)
             for j, item in enumerate(sv_display[i:i + 2]):
                 ticker    = format_ticker(item["code"])
                 price_now = sv_prices.get(ticker, {}).get("price")
+                today_pct = sv_prices.get(ticker, {}).get("today_pct")
                 price_str = f"NT$ {price_now:,.1f}" if price_now else "—"
+                td_clr    = "#ef4444" if (today_pct or 0) > 0 else ("#22c55e" if (today_pct or 0) < 0 else "#64748b")
+                td_arr    = "▲" if (today_pct or 0) > 0 else ("▼" if (today_pct or 0) < 0 else "")
+                td_str    = f"{td_arr} {abs(today_pct):.2f}%" if today_pct is not None else "—"
+                badge_txt = item["code"][:4]
+                fav_star  = "★ " if item["is_holding"] else ""
+
                 with cols[j]:
-                    st.caption(
-                        f"{'★ ' if item['is_holding'] else ''}"
-                        f"{item['name']}（{item['code']}）　{price_str}"
-                    )
+                    st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;padding:8px 2px 4px 2px;">
+  <div style="width:38px;height:38px;border-radius:8px;background:#1a1a2e;border:1px solid #3d3d5c;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;color:#a78bfa;flex-shrink:0;font-family:monospace;">{badge_txt}</div>
+  <div style="flex:1;min-width:0;">
+    <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fav_star}{item['name']}</div>
+    <div style="font-size:0.7rem;color:#64748b;">{item['code']}</div>
+  </div>
+  <div style="text-align:right;flex-shrink:0;">
+    <div style="font-weight:700;font-size:0.88rem;color:#f1f5f9;">{price_str}</div>
+    <div style="font-size:0.7rem;color:{td_clr};">{td_str}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
                     if ticker in sv_ohlc:
                         st.plotly_chart(
-                            _make_candlestick(sv_ohlc[ticker], height=160),
+                            _make_candlestick(sv_ohlc[ticker], height=150),
                             use_container_width=True,
                             key=f"sv_kline_{item['code']}",
                         )
                     else:
                         st.caption("無法載入 K 線資料")
+                    if item["is_holding"] and item["code"] in sv_pnl_map:
+                        _pd = sv_pnl_map[item["code"]]
+                        if _pd["pnl"] is not None:
+                            _p_clr = "#ef4444" if _pd["pnl"] > 0 else "#22c55e"
+                            _p_arr = "▲" if _pd["pnl"] > 0 else "▼"
+                            st.markdown(
+                                f'<div style="display:flex;justify-content:space-between;'
+                                f'padding:2px 2px 8px 2px;font-size:0.75rem;">'
+                                f'<span style="color:#64748b;">未實現損益</span>'
+                                f'<span style="color:{_p_clr};font-weight:600;">'
+                                f'{_p_arr} NT${abs(_pd["pnl"]):,.0f} ({abs(_pd["pnl_pct"]):.2f}%)'
+                                f'</span></div>',
+                                unsafe_allow_html=True,
+                            )
+                    st.markdown('<div style="border-top:1px solid #2d2d44;margin-bottom:8px;"></div>', unsafe_allow_html=True)
                     if not item["is_holding"]:
                         if st.button("移除", key=f"sv_rm_{item['code']}", use_container_width=True):
                             remove_quick_view_extra(item["code"])
