@@ -884,7 +884,8 @@ with tab2:
                 fav_star  = "★ " if item["is_holding"] else ""
 
                 with cols[j]:
-                    st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;padding:8px 2px 4px 2px;">
+                    with st.container(border=True):
+                        st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;padding:4px 2px 4px 2px;">
   <div style="width:38px;height:38px;border-radius:8px;background:#1a1a2e;border:1px solid #3d3d5c;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;color:#a78bfa;flex-shrink:0;font-family:monospace;">{badge_txt}</div>
   <div style="flex:1;min-width:0;">
     <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fav_star}{item['name']}</div>
@@ -895,33 +896,32 @@ with tab2:
     <div style="font-size:0.7rem;color:{td_clr};">{td_str}</div>
   </div>
 </div>""", unsafe_allow_html=True)
-                    if ticker in sv_ohlc:
-                        st.plotly_chart(
-                            _make_candlestick(sv_ohlc[ticker], height=150),
-                            use_container_width=True,
-                            key=f"sv_kline_{item['code']}",
-                        )
-                    else:
-                        st.caption("無法載入 K 線資料")
-                    if item["is_holding"] and item["code"] in sv_pnl_map:
-                        _pd = sv_pnl_map[item["code"]]
-                        if _pd["pnl"] is not None:
-                            _p_clr = "#ef4444" if _pd["pnl"] > 0 else "#22c55e"
-                            _p_arr = "▲" if _pd["pnl"] > 0 else "▼"
-                            st.markdown(
-                                f'<div style="display:flex;justify-content:space-between;'
-                                f'padding:2px 2px 8px 2px;font-size:0.75rem;">'
-                                f'<span style="color:#64748b;">未實現損益</span>'
-                                f'<span style="color:{_p_clr};font-weight:600;">'
-                                f'{_p_arr} NT${abs(_pd["pnl"]):,.0f} ({abs(_pd["pnl_pct"]):.2f}%)'
-                                f'</span></div>',
-                                unsafe_allow_html=True,
+                        if ticker in sv_ohlc:
+                            st.plotly_chart(
+                                _make_candlestick(sv_ohlc[ticker], height=150),
+                                use_container_width=True,
+                                key=f"sv_kline_{item['code']}",
                             )
-                    st.markdown('<div style="border-top:1px solid #2d2d44;margin-bottom:8px;"></div>', unsafe_allow_html=True)
-                    if not item["is_holding"]:
-                        if st.button("移除", key=f"sv_rm_{item['code']}", use_container_width=True):
-                            remove_quick_view_extra(item["code"])
-                            st.rerun()
+                        else:
+                            st.caption("無法載入 K 線資料")
+                        if item["is_holding"] and item["code"] in sv_pnl_map:
+                            _pd = sv_pnl_map[item["code"]]
+                            if _pd["pnl"] is not None:
+                                _p_clr = "#ef4444" if _pd["pnl"] > 0 else "#22c55e"
+                                _p_arr = "▲" if _pd["pnl"] > 0 else "▼"
+                                st.markdown(
+                                    f'<div style="display:flex;justify-content:space-between;'
+                                    f'padding:2px 2px 4px 2px;font-size:0.75rem;">'
+                                    f'<span style="color:#64748b;">未實現損益</span>'
+                                    f'<span style="color:{_p_clr};font-weight:600;">'
+                                    f'{_p_arr} NT${abs(_pd["pnl"]):,.0f} ({abs(_pd["pnl_pct"]):.2f}%)'
+                                    f'</span></div>',
+                                    unsafe_allow_html=True,
+                                )
+                        if not item["is_holding"]:
+                            if st.button("移除", key=f"sv_rm_{item['code']}", use_container_width=True):
+                                remove_quick_view_extra(item["code"])
+                                st.rerun()
     else:
         st.info("持倉為空。新增持倉後，速覽表會自動顯示。")
 
