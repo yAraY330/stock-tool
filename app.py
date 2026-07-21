@@ -5,7 +5,6 @@ import pandas as pd
 from modules.data import get_stock_info, get_price_history, format_ticker
 from modules.evaluator import evaluate, price_position
 from modules.market import get_all_prices, get_current_prices, get_ohlc_batch, fmt_pct
-from modules.recommender import get_recommendations, RISK_FILTER, CATEGORIES
 from modules.knowledge import CHAPTERS
 from modules.portfolio import (
     get_holdings, add_holding, remove_holding, rename_account, update_holding,
@@ -55,30 +54,40 @@ st.markdown("""
     font-weight: 600 !important;
 }
 
-/* ── Tab 列：方形 ── */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 4px;
-    background-color: #000000;
-    padding: 5px;
-    border-radius: 8px;
-    border: 1px solid #222222;
+/* ── Sidebar 導覽 ── */
+[data-testid="stSidebar"] {
+    border-right: 1px solid #222222;
+    padding-top: 0.5rem;
 }
-.stTabs [data-baseweb="tab"] {
-    height: 36px;
-    border-radius: 4px;
-    padding: 0 16px;
-    font-size: 0.84rem;
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    display: flex !important;
+    align-items: center;
+    padding: 10px 14px !important;
+    border-radius: 4px !important;
+    margin-bottom: 2px !important;
+    font-size: 0.9rem;
     font-weight: 500;
-    color: #888888;
-    background: transparent;
-    border: none;
-    transition: all 0.15s ease;
+    cursor: pointer;
+    transition: background 0.15s ease;
 }
-.stTabs [aria-selected="true"] {
+[data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {
+    display: none !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
     background: #ffffff !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
     color: #000000 !important;
     font-weight: 600 !important;
-    box-shadow: none;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)) p {
+    color: #888888;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)):hover {
+    background: #111111 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)):hover p {
+    color: #f1f5f9 !important;
 }
 
 /* ── Metric 卡片 ── */
@@ -199,11 +208,6 @@ textarea::placeholder {
         font-size: 1.45rem !important;
         letter-spacing: -0.3px;
     }
-    .stTabs [data-baseweb="tab"] {
-        padding: 0 3px !important;
-        font-size: 0.6rem !important;
-        height: 34px !important;
-    }
     .stButton > button {
         min-height: 44px !important;
         font-size: 0.88rem !important;
@@ -248,7 +252,6 @@ if not _check_password():
     st.stop()
 
 st.title("📊 yAraY的台股溝")
-st.caption("⚠️ 本工具僅供個人記錄參考，不構成任何投資建議。")
 
 for _k, _v in [("eval_ticker", ""), ("csv_imported", False), ("editing_idx", None)]:
     if _k not in st.session_state:
@@ -333,11 +336,21 @@ if _sl_holdings:
     except Exception:
         pass
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估", "🎯 推薦", "📚 知識"])
+with st.sidebar:
+    st.markdown("### 📊 台股溝")
+    st.divider()
+    page = st.radio(
+        "navigation",
+        ["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估", "📚 知識"],
+        label_visibility="collapsed",
+        key="sidebar_nav",
+    )
+    st.divider()
+    st.caption("⚠️ 本工具僅供個人記錄參考，不構成任何投資建議。")
 
 
-# ── Tab 1: 持倉管理 ───────────────────────────────────────────
-with tab1:
+# ── 持倉管理 ─────────────────────────────────────────────────
+if page == "📊 持倉":
     st.header("我的持倉")
     holdings  = get_holdings()
     favorites = get_favorites()
@@ -554,7 +567,8 @@ with tab1:
                 with _gbb:
                     if st.button("🔍 評估頁", key=f"pe_grp_{_code}", use_container_width=True):
                         st.session_state.eval_ticker = _code.replace(".TW", "")
-                        st.success("請切換到「股票評估」頁面")
+                        st.session_state.sidebar_nav = "🔍 評估"
+                        st.rerun()
                 with _gbc:
                     _eval_key    = f"show_eval_grp_{_code}"
                     _eval_active = st.session_state.get(_eval_key, False)
@@ -844,8 +858,8 @@ with tab1:
         st.info("目前沒有持倉記錄。請前往「➕ 新增持倉」頁面新增你的第一筆。")
 
 
-# ── Tab 2: 速覽 ──────────────────────────────────────────────
-with tab2:
+# ── 速覽 ─────────────────────────────────────────────────────
+elif page == "⚡ 速覽":
     st.header("速覽表")
 
     sv_holdings = get_holdings()
@@ -988,8 +1002,8 @@ with tab2:
                     st.error("查詢失敗，請確認代碼是否正確")
 
 
-# ── Tab 3: 新增持倉 ───────────────────────────────────────────
-with tab3:
+# ── 新增持倉 ─────────────────────────────────────────────────
+elif page == "➕ 新增":
     st.header("新增持倉")
 
     _has_sheets = False
@@ -1152,8 +1166,8 @@ with tab3:
             st.rerun()
 
 
-# ── Tab 4: 觀察清單 ───────────────────────────────────────────
-with tab4:
+# ── 觀察清單 ─────────────────────────────────────────────────
+elif page == "👁️ 觀察":
     st.header("觀察清單")
     watchlist = get_watchlist()
 
@@ -1214,7 +1228,8 @@ with tab4:
                 with wb2:
                     if st.button("🔍 評估", key=f"we_{i}", use_container_width=True):
                         st.session_state.eval_ticker = w["code"]
-                        st.success("請切換到「股票評估」頁面")
+                        st.session_state.sidebar_nav = "🔍 評估"
+                        st.rerun()
                 with wb3:
                     if st.button("🗑️ 移除", key=f"wr_{i}", use_container_width=True):
                         remove_from_watchlist(i)
@@ -1267,8 +1282,8 @@ with tab4:
                 st.error("查詢失敗，請確認代碼是否正確")
 
 
-# ── Tab 5: 股票評估 ───────────────────────────────────────────
-with tab5:
+# ── 股票評估 ─────────────────────────────────────────────────
+elif page == "🔍 評估":
     st.header("股票評估工具")
     st.write("輸入台股代碼，解讀這支股票的基本面數字。")
 
@@ -1331,52 +1346,8 @@ with tab5:
                     st.info(f"💬 新手小知識：{m['beginner_tip']}")
 
 
-# ── Tab 6: 新手推薦 ───────────────────────────────────────────
-with tab6:
-    st.header("新手股票推薦")
-    st.caption("根據你的條件篩選台股標的，所有內容僅供參考，不構成投資建議。")
-
-    rf1, rf2, rf3 = st.columns(3)
-    with rf1:
-        rec_risk = st.radio("風險偏好", list(RISK_FILTER.keys()), key="rec_risk")
-    with rf2:
-        rec_goal = st.radio("投資目標", ["長期增值", "被動收入", "短期獲利"], key="rec_goal")
-    with rf3:
-        rec_cat = st.selectbox("股票類別", CATEGORIES, key="rec_cat")
-
-    picks, empty_msg = get_recommendations(rec_risk, rec_goal, rec_cat)
-
-    st.divider()
-    if empty_msg:
-        st.warning(empty_msg)
-    elif not picks:
-        st.info("沒有符合條件的標的，請調整篩選條件。")
-    else:
-        st.success(f"找到 {len(picks)} 個符合條件的標的")
-        _wl_codes = {w["code"] for w in get_watchlist()}
-        for p in picks:
-            base_code = p["code"].replace(".TWO", "").replace(".TW", "")
-            icon = "📊" if p["type"] == "ETF" else "🏢"
-            with st.expander(f"{icon} **{p['name']}**（{base_code}）　{p['dividend']}"):
-                st.markdown(f"**為什麼推薦？** {p['why']}")
-                st.markdown(f"**適合誰？** {p['suitable_for']}")
-                if p.get("warning"):
-                    st.warning(f"⚠️ {p['warning']}")
-                rb1, rb2 = st.columns(2)
-                with rb1:
-                    if base_code in _wl_codes:
-                        st.info("✅ 已在觀察清單中")
-                    elif st.button("👁️ 加入觀察清單", key=f"rec_wl_{p['code']}", use_container_width=True):
-                        add_to_watchlist(base_code, p["name"], "來自新手推薦")
-                        st.rerun()
-                with rb2:
-                    if st.button("🔍 查看評估", key=f"rec_ev_{p['code']}", use_container_width=True):
-                        st.session_state.eval_ticker = base_code
-                        st.success("請切換到「股票評估」頁面")
-
-
-# ── Tab 7: 補知識 ─────────────────────────────────────────────
-with tab7:
+# ── 補知識 ───────────────────────────────────────────────────
+elif page == "📚 知識":
     st.header("台股補知識")
     st.caption("從零開始學台股，點開每個問題查看解答。")
 
