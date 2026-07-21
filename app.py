@@ -18,6 +18,20 @@ from modules.portfolio import (
 
 st.set_page_config(page_title="yAraY的台股溝", page_icon="📊", layout="wide")
 
+# ── 色票常數（單一真相來源）────────────────────────────────────
+C = {
+    "up":         "#ff3b3b",  # 漲（紅）
+    "down":       "#22e55c",  # 跌（亮綠）
+    "accent_bg":  "#ffffff",  # 強調色塊背景（白）
+    "accent_fg":  "#000000",  # 強調色塊文字（黑）
+    "bg":         "#000000",  # 全部背景（純黑）
+    "border":     "#222222",  # 邊框
+    "text":       "#f1f5f9",  # 主要文字
+    "text_sub":   "#666666",  # 次要文字
+    "tab_off":    "#888888",  # tab 未選中文字
+    "heading":    "#5eead4",  # h2/h3 標題（青綠）
+}
+
 st.markdown("""
 <style>
 /* ── 全域容器 ── */
@@ -27,161 +41,147 @@ st.markdown("""
     max-width: 1200px;
 }
 
-/* ── 標題漸層 ── */
+/* ── 標題 ── */
 .stApp h1 {
-    background: linear-gradient(90deg, #a78bfa 0%, #ec4899 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #f1f5f9;
     font-size: 2rem !important;
     font-weight: 800 !important;
     letter-spacing: -0.5px;
 }
 
-/* ── 子標題顏色 ── */
+/* ── 子標題 ── */
 .stApp h2, .stApp h3 {
-    color: #c4b5fd !important;
+    color: #5eead4 !important;
     font-weight: 600 !important;
 }
 
-/* ── Tab 列：藥丸形式 ── */
+/* ── Tab 列：方形 ── */
 .stTabs [data-baseweb="tab-list"] {
     gap: 4px;
-    background-color: #1a1a2e;
+    background-color: #000000;
     padding: 5px;
-    border-radius: 14px;
-    border: 1px solid #2d2d44;
+    border-radius: 8px;
+    border: 1px solid #222222;
 }
 .stTabs [data-baseweb="tab"] {
-    height: 38px;
-    border-radius: 10px;
-    padding: 0 18px;
+    height: 36px;
+    border-radius: 4px;
+    padding: 0 16px;
     font-size: 0.84rem;
     font-weight: 500;
-    color: #94a3b8;
+    color: #888888;
     background: transparent;
     border: none;
-    transition: all 0.2s ease;
+    transition: all 0.15s ease;
 }
 .stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, #7c3aed, #8b5cf6) !important;
-    color: #ffffff !important;
+    background: #ffffff !important;
+    color: #000000 !important;
     font-weight: 600 !important;
-    box-shadow: 0 2px 12px rgba(139, 92, 246, 0.4);
+    box-shadow: none;
 }
 
 /* ── Metric 卡片 ── */
 [data-testid="metric-container"] {
-    background: linear-gradient(135deg, #1e1e2e 0%, #16213e 100%);
-    border: 1px solid #2d2d44;
-    border-radius: 14px;
+    background: #000000;
+    border: 1px solid #222222;
+    border-radius: 6px;
     padding: 1rem 1.25rem !important;
-    box-shadow: 0 4px 20px rgba(139, 92, 246, 0.08);
-    transition: box-shadow 0.2s ease;
+    box-shadow: none;
+    transition: border-color 0.2s ease;
 }
 [data-testid="metric-container"]:hover {
-    box-shadow: 0 4px 24px rgba(139, 92, 246, 0.2);
+    border-color: #444444;
 }
 
 /* ── Expander 卡片 ── */
 details {
-    border: 1px solid #2d2d44 !important;
-    border-radius: 12px !important;
-    background: #1a1a2e !important;
+    border: 1px solid #222222 !important;
+    border-radius: 6px !important;
+    background: #000000 !important;
     margin-bottom: 6px !important;
     transition: border-color 0.2s ease;
 }
 details:hover {
-    border-color: #6d28d9 !important;
+    border-color: #444444 !important;
 }
 details > summary {
     padding: 0.7rem 1rem !important;
-    border-radius: 12px !important;
+    border-radius: 6px !important;
     font-weight: 500;
 }
 details[open] > summary {
-    border-radius: 12px 12px 0 0 !important;
-    border-bottom: 1px solid #2d2d44 !important;
-    color: #c4b5fd;
+    border-radius: 6px 6px 0 0 !important;
+    border-bottom: 1px solid #222222 !important;
+    color: #f1f5f9;
 }
 
 /* ── 分隔線 ── */
 hr {
-    border-color: #2d2d44 !important;
+    border-color: #222222 !important;
     margin: 1rem 0 !important;
 }
 
 /* ── 按鈕 ── */
 .stButton > button {
-    border-radius: 8px !important;
+    border-radius: 4px !important;
     font-weight: 500 !important;
-    transition: all 0.2s ease !important;
+    transition: all 0.15s ease !important;
+    border: 1px solid #333333 !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #7c3aed, #8b5cf6) !important;
+    background: #ffffff !important;
+    color: #000000 !important;
     border: none !important;
-    box-shadow: 0 2px 10px rgba(139, 92, 246, 0.3) !important;
+    box-shadow: none !important;
 }
 .stButton > button[kind="primary"]:hover {
-    box-shadow: 0 4px 16px rgba(139, 92, 246, 0.5) !important;
-    transform: translateY(-1px);
+    background: #e0e0e0 !important;
+    transform: none;
 }
 
 /* ── 警告橫幅 ── */
 .stAlert {
-    border-radius: 10px !important;
-    border-left: 4px solid #8b5cf6 !important;
+    border-radius: 4px !important;
+    border-left: 3px solid #333333 !important;
 }
 
 /* ── 下載按鈕 ── */
 .stDownloadButton > button {
-    border-radius: 8px !important;
-    border: 1px solid #4c1d95 !important;
+    border-radius: 4px !important;
+    border: 1px solid #ffffff !important;
     background: transparent !important;
-    color: #a78bfa !important;
+    color: #ffffff !important;
 }
 
 /* ── 手機響應式 ── */
 @media screen and (max-width: 768px) {
-    /* 容器縮邊距，讓內容更寬 */
     .main .block-container {
         padding-left: 0.6rem !important;
         padding-right: 0.6rem !important;
         padding-top: 0.75rem !important;
     }
-
-    /* 標題縮小 */
     .stApp h1 {
         font-size: 1.45rem !important;
         letter-spacing: -0.3px;
     }
-
-    /* Tab 文字縮小，讓七個 tab 都放得下 */
     .stTabs [data-baseweb="tab"] {
         padding: 0 3px !important;
         font-size: 0.6rem !important;
-        height: 36px !important;
+        height: 34px !important;
     }
-
-    /* 按鈕放大觸控區域（iOS 建議最少 44px） */
     .stButton > button {
         min-height: 44px !important;
         font-size: 0.88rem !important;
     }
-
-    /* Metric 卡片在手機上縮小內距 */
     [data-testid="metric-container"] {
         padding: 0.7rem 0.85rem !important;
     }
-
-    /* Expander 標題字加大易點選 */
     details > summary {
         font-size: 0.88rem !important;
         line-height: 1.5 !important;
         padding: 0.85rem 0.9rem !important;
     }
-
-    /* 表單 input 放大，避免 iOS 自動縮放 */
     input[type="text"], input[type="number"] {
         font-size: 16px !important;
     }
@@ -248,8 +248,8 @@ def _make_candlestick(df: pd.DataFrame, height: int = 200) -> go.Figure:
         x=df.index,
         open=df["Open"], high=df["High"],
         low=df["Low"],  close=df["Close"],
-        increasing_line_color="#ef4444",   # 台灣：紅=漲
-        decreasing_line_color="#22c55e",   # 台灣：綠=跌
+        increasing_line_color="#ff3b3b",   # 台灣：紅=漲
+        decreasing_line_color="#22e55c",   # 台灣：綠=跌
     ))
     fig.update_layout(
         height=height, showlegend=False,
@@ -477,8 +477,8 @@ with tab1:
             _badge_txt  = _code[:4]
             _fav_star   = "★ " if _is_fav else ""
             _val_str    = f"NT$ {_gs['tot_val']:,.0f}" if _gs["tot_val"] else "—"
-            _pnl_clr    = ("#ef4444" if (_gs["tot_pnl"] or 0) > 0
-                           else "#22c55e" if (_gs["tot_pnl"] or 0) < 0 else "#64748b")
+            _pnl_clr    = (C["up"] if (_gs["tot_pnl"] or 0) > 0
+                           else C["down"] if (_gs["tot_pnl"] or 0) < 0 else C["text_sub"])
             _pnl_arr    = "▲" if (_gs["tot_pnl"] or 0) > 0 else ("▼" if (_gs["tot_pnl"] or 0) < 0 else "")
             _pnl_disp   = (f"{_pnl_arr} NT${abs(_gs['tot_pnl']):,.0f} ({abs(_gs['g_pct']):.2f}%)"
                            if _gs["tot_pnl"] is not None else "—")
@@ -493,10 +493,10 @@ with tab1:
             _rca, _rcb  = st.columns([9, 1])
             with _rca:
                 st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;padding:10px 2px;">
-  <div style="width:44px;height:44px;border-radius:10px;background:#1a1a2e;border:1px solid #3d3d5c;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#a78bfa;flex-shrink:0;font-family:monospace;">{_badge_txt}</div>
+  <div style="width:44px;height:44px;border-radius:4px;background:#ffffff;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#000000;flex-shrink:0;font-family:monospace;">{_badge_txt}</div>
   <div style="flex:1;min-width:0;overflow:hidden;">
     <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_fav_star}{_gs['name']}</div>
-    <div style="font-size:0.76rem;color:#64748b;">{_sub_line}</div>
+    <div style="font-size:0.76rem;color:#666666;">{_sub_line}</div>
   </div>
   <div style="text-align:right;flex-shrink:0;">
     <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_val_str}</div>
@@ -507,7 +507,7 @@ with tab1:
                 if st.button("▲" if _is_open else "▼", key=f"tog_{_code}", use_container_width=True):
                     st.session_state[_detail_key] = not _is_open
                     st.rerun()
-            st.markdown('<div style="border-top:1px solid #2d2d44;margin-bottom:4px;"></div>', unsafe_allow_html=True)
+            st.markdown('<div style="border-top:1px solid #222222;margin-bottom:4px;"></div>', unsafe_allow_html=True)
 
             if _is_open:
                 # ── 群組操作列：收藏、評估頁、基本面 ──
@@ -877,7 +877,7 @@ with tab2:
                 price_now = sv_prices.get(ticker, {}).get("price")
                 today_pct = sv_prices.get(ticker, {}).get("today_pct")
                 price_str = f"NT$ {price_now:,.1f}" if price_now else "—"
-                td_clr    = "#ef4444" if (today_pct or 0) > 0 else ("#22c55e" if (today_pct or 0) < 0 else "#64748b")
+                td_clr    = C["up"] if (today_pct or 0) > 0 else (C["down"] if (today_pct or 0) < 0 else C["text_sub"])
                 td_arr    = "▲" if (today_pct or 0) > 0 else ("▼" if (today_pct or 0) < 0 else "")
                 td_str    = f"{td_arr} {abs(today_pct):.2f}%" if today_pct is not None else "—"
                 badge_txt = item["code"][:4]
@@ -886,10 +886,10 @@ with tab2:
                 with cols[j]:
                     with st.container(border=True):
                         st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;padding:4px 2px 4px 2px;">
-  <div style="width:38px;height:38px;border-radius:8px;background:#1a1a2e;border:1px solid #3d3d5c;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;color:#a78bfa;flex-shrink:0;font-family:monospace;">{badge_txt}</div>
+  <div style="width:38px;height:38px;border-radius:4px;background:#ffffff;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;color:#000000;flex-shrink:0;font-family:monospace;">{badge_txt}</div>
   <div style="flex:1;min-width:0;">
     <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fav_star}{item['name']}</div>
-    <div style="font-size:0.7rem;color:#64748b;">{item['code']}</div>
+    <div style="font-size:0.7rem;color:#666666;">{item['code']}</div>
   </div>
   <div style="text-align:right;flex-shrink:0;">
     <div style="font-weight:700;font-size:0.88rem;color:#f1f5f9;">{price_str}</div>
@@ -907,12 +907,12 @@ with tab2:
                         if item["is_holding"] and item["code"] in sv_pnl_map:
                             _pd = sv_pnl_map[item["code"]]
                             if _pd["pnl"] is not None:
-                                _p_clr = "#ef4444" if _pd["pnl"] > 0 else "#22c55e"
+                                _p_clr = C["up"] if _pd["pnl"] > 0 else C["down"]
                                 _p_arr = "▲" if _pd["pnl"] > 0 else "▼"
                                 st.markdown(
                                     f'<div style="display:flex;justify-content:space-between;'
                                     f'padding:2px 2px 4px 2px;font-size:0.75rem;">'
-                                    f'<span style="color:#64748b;">未實現損益</span>'
+                                    f'<span style="color:#666666;">未實現損益</span>'
                                     f'<span style="color:{_p_clr};font-weight:600;">'
                                     f'{_p_arr} NT${abs(_pd["pnl"]):,.0f} ({abs(_pd["pnl_pct"]):.2f}%)'
                                     f'</span></div>',
@@ -1278,7 +1278,7 @@ with tab5:
                 fig.add_trace(go.Scatter(
                     x=history.index, y=history["Close"],
                     mode="lines", name="收盤價",
-                    line=dict(color="#1f77b4", width=2),
+                    line=dict(color="#5eead4", width=2),
                 ))
                 fig.update_layout(
                     title="近一年股價走勢",
