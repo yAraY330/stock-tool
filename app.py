@@ -472,20 +472,44 @@ with tab1:
             _gs     = _gsumm[_code]
             _is_fav = _code in favorites
 
-            _fav_char  = "★" if _is_fav else "☆"
-            _icon      = ("🟢" if _gs["tot_pnl"] and _gs["tot_pnl"] > 0
-                          else ("🔴" if _gs["tot_pnl"] and _gs["tot_pnl"] < 0 else "⚪"))
-            _pnl_str   = (f"　{_gs['tot_pnl']:+,.0f} 元（{_gs['g_pct']:+.2f}%）"
-                          if _gs["tot_pnl"] is not None else "")
-            _multi_tag = f"　{len(_lots)} 筆" if len(_lots) > 1 else ""
+            _detail_key = f"h_detail_{_code}"
+            _is_open    = st.session_state.get(_detail_key, False)
+            _badge_txt  = _code[:4]
+            _fav_star   = "★ " if _is_fav else ""
+            _val_str    = f"NT$ {_gs['tot_val']:,.0f}" if _gs["tot_val"] else "—"
+            _pnl_clr    = ("#ef4444" if (_gs["tot_pnl"] or 0) > 0
+                           else "#22c55e" if (_gs["tot_pnl"] or 0) < 0 else "#64748b")
+            _pnl_arr    = "▲" if (_gs["tot_pnl"] or 0) > 0 else ("▼" if (_gs["tot_pnl"] or 0) < 0 else "")
+            _pnl_disp   = (f"{_pnl_arr} NT${abs(_gs['tot_pnl']):,.0f} ({abs(_gs['g_pct']):.2f}%)"
+                           if _gs["tot_pnl"] is not None else "—")
+            _sub_parts  = [f"{_gs['tot_shares']:.4g} 股"]
+            if len(_lots) > 1:
+                _sub_parts.append(f"{len(_lots)} 筆")
             if selected_account == "全部帳號":
-                _acct_str = "［" + "/".join(sorted({_e["account"] for _e in _lots if _e.get("account")} or {"預設帳號"})) + "］　"
-            else:
-                _acct_str = ""
-            _title = (f"{_fav_char} {_icon} {_acct_str}{_gs['name']}（{_code}）"
-                      f"　{_gs['tot_shares']:.4g} 股{_multi_tag}{_pnl_str}")
+                _accts_s = "/".join(sorted({_e.get("account", "預設帳號") for _e in _lots}))
+                _sub_parts.append(_accts_s)
+            _sub_line   = " · ".join(_sub_parts)
 
-            with st.expander(_title):
+            _rca, _rcb  = st.columns([9, 1])
+            with _rca:
+                st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;padding:10px 2px;">
+  <div style="width:44px;height:44px;border-radius:10px;background:#1a1a2e;border:1px solid #3d3d5c;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#a78bfa;flex-shrink:0;font-family:monospace;">{_badge_txt}</div>
+  <div style="flex:1;min-width:0;overflow:hidden;">
+    <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_fav_star}{_gs['name']}</div>
+    <div style="font-size:0.76rem;color:#64748b;">{_sub_line}</div>
+  </div>
+  <div style="text-align:right;flex-shrink:0;">
+    <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_val_str}</div>
+    <div style="font-size:0.76rem;color:{_pnl_clr};">{_pnl_disp}</div>
+  </div>
+</div>""", unsafe_allow_html=True)
+            with _rcb:
+                if st.button("▲" if _is_open else "▼", key=f"tog_{_code}", use_container_width=True):
+                    st.session_state[_detail_key] = not _is_open
+                    st.rerun()
+            st.markdown('<div style="border-top:1px solid #2d2d44;margin-bottom:4px;"></div>', unsafe_allow_html=True)
+
+            if _is_open:
                 # ── 群組操作列：收藏、評估頁、基本面 ──
                 _gba, _gbb, _gbc = st.columns(3)
                 with _gba:
