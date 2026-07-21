@@ -131,10 +131,13 @@ hr {
     margin: 1rem 0 !important;
 }
 
-/* ── 互動框白底 ── */
+/* ── 互動框白底黑字 ── */
 [data-baseweb="input"],
 [data-baseweb="base-input"],
-[data-baseweb="textarea"] {
+[data-baseweb="textarea"],
+[data-testid="stTextInput"] > div,
+[data-testid="stNumberInput"] > div,
+[data-testid="stTextArea"] > div {
     background-color: #ffffff !important;
     border-color: #cccccc !important;
     color: #000000 !important;
@@ -142,26 +145,28 @@ hr {
 [data-baseweb="input"] input,
 [data-baseweb="base-input"] input,
 [data-baseweb="textarea"] textarea,
-[data-baseweb="input"] textarea {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
+[data-testid="stTextInput"] input,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextArea"] textarea,
 input[type="text"],
 input[type="number"],
 input[type="password"],
 textarea {
     background-color: #ffffff !important;
     color: #000000 !important;
+    caret-color: #000000 !important;
 }
 input::placeholder,
 textarea::placeholder {
     color: #888888 !important;
 }
-.stTextInput input,
-.stNumberInput input,
-.stTextArea textarea {
-    background-color: #ffffff !important;
+/* ── Form submit button 黑字 ── */
+[data-testid="stFormSubmitButton"] button,
+[data-testid="stFormSubmitButton"] button[kind="primaryFormSubmit"],
+[data-testid="stFormSubmitButton"] button[kind="secondaryFormSubmit"] {
     color: #000000 !important;
+    background: #ffffff !important;
+    border: 1px solid #333333 !important;
 }
 [data-baseweb="select"] > div:first-child {
     background-color: #ffffff !important;
@@ -1006,17 +1011,9 @@ elif page == "⚡ 速覽":
             elif sv_input_upper in extra_codes:
                 st.warning(f"**{sv_input_upper}** 已在速覽表的額外追蹤中。")
             else:
-                try:
-                    sv_info = get_stock_info(sv_ticker_input)
-                    sv_name = sv_info.get("name") or sv_code.strip().upper()
-                    if not sv_info.get("price"):
-                        st.error("找不到此股票代碼，請確認後再試")
-                    else:
-                        add_quick_view_extra(sv_code.strip().upper(), sv_name)
-                        st.success(f"✅ 已加入：{sv_name}（{sv_code.strip().upper()}）")
-                        st.rerun()
-                except Exception as _e:
-                    st.error(f"查詢失敗（{sv_ticker_input}）：{_e}")
+                add_quick_view_extra(sv_input_upper, sv_input_upper)
+                st.success(f"✅ 已加入：{sv_input_upper}（名稱將在速覽表載入時自動更新）")
+                st.rerun()
 
 
 # ── 新增持倉 ─────────────────────────────────────────────────
