@@ -137,6 +137,7 @@ hr {
 [data-baseweb="textarea"] {
     background-color: #ffffff !important;
     border-color: #cccccc !important;
+    color: #000000 !important;
 }
 input[type="text"],
 input[type="number"],
@@ -985,9 +986,12 @@ elif page == "⚡ 速覽":
             st.error("請輸入股票代碼")
         else:
             sv_ticker_input = format_ticker(sv_code.strip())
-            existing_codes  = {e["code"] for e in sv_extras} | sv_holding_codes
-            if sv_code.strip().upper() in existing_codes:
-                st.warning("此股票已在速覽表中")
+            sv_input_upper  = sv_code.strip().upper()
+            extra_codes     = {e["code"] for e in sv_extras}
+            if sv_input_upper in sv_holding_codes:
+                st.info(f"**{sv_input_upper}** 已在你的持倉中，速覽表已自動顯示此股票，不需要另外新增。")
+            elif sv_input_upper in extra_codes:
+                st.warning(f"**{sv_input_upper}** 已在速覽表的額外追蹤中。")
             else:
                 try:
                     sv_info = get_stock_info(sv_ticker_input)
