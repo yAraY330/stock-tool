@@ -312,6 +312,9 @@ def _make_candlestick(df: pd.DataFrame, height: int = 200) -> go.Figure:
         xaxis_rangeslider_visible=False,
         margin=dict(l=0, r=0, t=10, b=0),
     )
+    # 把 x 軸鎖到實際資料範圍，去掉台股 13:30 收盤後的空白留白
+    if len(df.index) > 0:
+        fig.update_xaxes(range=[df.index.min(), df.index.max()])
     return fig
 
 
