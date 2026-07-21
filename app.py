@@ -122,6 +122,40 @@ hr {
     margin: 1rem 0 !important;
 }
 
+/* ── 互動框白底 ── */
+[data-baseweb="input"],
+[data-baseweb="base-input"],
+[data-baseweb="textarea"] {
+    background-color: #ffffff !important;
+    border-color: #cccccc !important;
+}
+input[type="text"],
+input[type="number"],
+input[type="password"],
+textarea {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+input::placeholder,
+textarea::placeholder {
+    color: #888888 !important;
+}
+[data-baseweb="select"] > div:first-child {
+    background-color: #ffffff !important;
+    border-color: #cccccc !important;
+}
+[data-baseweb="select"] [class*="singleValue"],
+[data-baseweb="select"] [class*="placeholder"] {
+    color: #000000 !important;
+}
+[data-baseweb="popover"] [role="option"] {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+[data-baseweb="popover"] [role="option"]:hover {
+    background-color: #f0f0f0 !important;
+}
+
 /* ── 按鈕 ── */
 .stButton > button {
     border-radius: 4px !important;
