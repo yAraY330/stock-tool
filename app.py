@@ -4,7 +4,10 @@ import plotly.graph_objects as go
 import pandas as pd
 from modules.data import get_stock_info, get_price_history, format_ticker
 from modules.evaluator import evaluate, price_position
-from modules.market import get_all_prices, get_current_prices, get_ohlc_batch, fmt_pct
+from modules.market import (
+    get_all_prices, get_current_prices, get_ohlc_batch, fmt_pct, get_snapshot_data,
+)
+from modules.snapshot import build_snapshot
 from modules.knowledge import CHAPTERS
 from modules.portfolio import (
     get_holdings, add_holding, remove_holding, rename_account, update_holding,
@@ -13,6 +16,8 @@ from modules.portfolio import (
     get_accounts,
     get_quick_view_extras, add_quick_view_extra, remove_quick_view_extra,
     get_sold, sell_holding,
+    add_dividend, remove_dividend,
+    get_snapshot, save_snapshot,
 )
 
 st.set_page_config(page_title="yAraY的台股溝", page_icon="📊", layout="wide")
@@ -371,6 +376,52 @@ with st.sidebar:
     st.caption("⚠️ 本工具僅供個人記錄參考，不構成任何投資建議。")
 
 
+# ── 每日快照（供台股晨報日報讀取）────────────────────────────
+_TZ8 = datetime.timezone(datetime.timedelta(hours=8))
+_SNAP_MAX_AGE_MIN = 30
+
+
+def _snapshot_fresh(snap: dict | None) -> bool:
+    """既有快照是否仍新鮮（updated_at 未滿 30 分鐘）。"""
+    if not snap or not snap.get("updated_at"):
+        return False
+    try:
+        ts = datetime.datetime.fromisoformat(snap["updated_at"])
+    except (ValueError, TypeError):
+        return False
+    now = datetime.datetime.now(ts.tzinfo or _TZ8)
+    return (now - ts).total_seconds() < _SNAP_MAX_AGE_MIN * 60
+
+
+def _maybe_write_snapshot(holdings: list, *, force: bool = False) -> str | None:
+    """組並寫入每日快照。回傳訊息（供手動按鈕顯示）或 None（靜默跳過）。
+    節流：同 session 最多一次、既有快照未滿 30 分鐘就跳過（force 可略過）。
+    失敗或全抓不到行情時：保留舊快照、不寫入、不破壞任何資料。"""
+    if not holdings:
+        return None
+    if not force:
+        if st.session_state.get("_snap_written"):
+            return None
+        if _snapshot_fresh(get_snapshot()):
+            st.session_state["_snap_written"] = True
+            return None
+    try:
+        tickers = tuple(sorted({format_ticker(h["code"]) for h in holdings}))
+        snap_data = get_snapshot_data(tickers)          # 慢、在寫入鎖外
+        quotes = snap_data.get("quotes", {})
+        if not quotes:                                   # 全抓不到 → 保留舊快照
+            st.session_state["_snap_written"] = True     # 本 session 不再重試洗版
+            return "⚠️ 暫時抓不到行情，保留既有快照未更新" if force else None
+        payload = build_snapshot(holdings, quotes,
+                                 snap_data.get("market_date"),
+                                 datetime.datetime.now(_TZ8))
+        save_snapshot(payload)                           # 只覆寫 snapshot 鍵
+        st.session_state["_snap_written"] = True
+        return f"✅ 快照已更新（{payload['updated_at'][:16]}，狀態 {payload['status']}）"
+    except Exception as _err:
+        return f"⚠️ 快照更新失敗，既有資料未受影響：{_err}" if force else None
+
+
 # ── 持倉管理 ─────────────────────────────────────────────────
 if page == "📊 持倉":
     st.header("我的持倉")
@@ -405,6 +456,9 @@ if page == "📊 持倉":
             ohlc_map = get_ohlc_batch(unique_tickers)
         except Exception:
             ohlc_map = {}
+
+        # 自動寫入每日快照（受節流保護：同 session 一次、未滿 30 分鐘跳過）
+        _maybe_write_snapshot(holdings)
 
         # 建立 enriched（含真實 index）
         all_enriched = []
@@ -458,10 +512,14 @@ if page == "📊 持倉":
             _tv0     = _ts0 * _cur0 if _cur0 else None
             _tpg0    = _tv0 - _tc0 if _tv0 is not None else None
             _gp0     = (_cur0 - _wa0) / _wa0 * 100 if (_cur0 and _wa0) else None
+            _tdv0    = sum(_e0.get("dividends", 0) for _e0 in _lots0)   # 該股累計配息
+            _tret0   = (_tpg0 + _tdv0) if _tpg0 is not None else None   # 含息報酬
+            _trp0    = (_tret0 / _tc0 * 100) if (_tret0 is not None and _tc0) else None
             _gsumm[_c0] = {
                 "name": _lots0[0]["name"], "ticker": _lots0[0]["ticker"],
                 "tot_shares": _ts0, "tot_cost": _tc0, "w_avg": _wa0,
                 "cur_price": _cur0, "tot_val": _tv0, "tot_pnl": _tpg0, "g_pct": _gp0,
+                "tot_div": _tdv0, "tot_return": _tret0, "tot_return_pct": _trp0,
             }
 
         # 排序（群組層級）
@@ -477,19 +535,34 @@ if page == "📊 持倉":
                 key=lambda _c: (0 if _c in favorites else 1, _grp[_c][0].get("account", "")))
 
         # ── 總覽 ──
-        total_cost  = sum(e["cost_basis"] for e in enriched)
-        priced      = [e for e in enriched if e["current_value"] is not None]
-        total_value = sum(e["current_value"] for e in priced) if priced else None
-        total_pnl   = (total_value - sum(e["cost_basis"] for e in priced)) if total_value else None
-        total_pct   = (total_pnl / sum(e["cost_basis"] for e in priced) * 100) if total_pnl else None
+        total_cost   = sum(e["cost_basis"] for e in enriched)
+        priced       = [e for e in enriched if e["current_value"] is not None]
+        _priced_cost = sum(e["cost_basis"] for e in priced) if priced else 0
+        total_value  = sum(e["current_value"] for e in priced) if priced else None
+        total_pnl    = (total_value - _priced_cost) if total_value is not None else None
+        total_pct    = (total_pnl / _priced_cost * 100) if (total_pnl is not None and _priced_cost) else None
+        # 含息報酬：只在有現價的持股上計算，讓分子分母一致
+        total_div    = sum(e.get("dividends", 0) for e in priced)
+        total_return = (total_pnl + total_div) if total_pnl is not None else None
+        total_ret_pct = (total_return / _priced_cost * 100) if (total_return is not None and _priced_cost) else None
+        _has_div     = total_div > 0
 
         label_prefix = "" if selected_account == "全部帳號" else f"{selected_account}．"
-        c1, c2, c3, c4 = st.columns(4)
+        if _has_div:
+            c1, c2, c3, c4, c5 = st.columns(5)
+        else:
+            c1, c2, c3, c4 = st.columns(4)
+            c5 = c4
         c1.metric(f"{label_prefix}投入成本", f"NT$ {total_cost:,.0f}")
-        c2.metric(f"{label_prefix}總市值",   f"NT$ {total_value:,.0f}" if total_value else "—")
+        c2.metric(f"{label_prefix}總市值",   f"NT$ {total_value:,.0f}" if total_value is not None else "—")
         if total_pnl is not None:
-            c3.metric("未實現損益", f"NT$ {total_pnl:+,.0f}", delta=f"{total_pct:+.2f}%")
-        c4.metric("持有檔數", f"{len(_seen_codes)} 支")
+            c3.metric("未實現損益（價差）", f"NT$ {total_pnl:+,.0f}",
+                      delta=f"{total_pct:+.2f}%" if total_pct is not None else None)
+        if _has_div and total_return is not None:
+            c4.metric("含息報酬", f"NT$ {total_return:+,.0f}",
+                      delta=f"{total_ret_pct:+.2f}%" if total_ret_pct is not None else None,
+                      help="價差損益 ＋ 已收配息。除息當天股價被扣除，含息報酬才是你的真實處境。")
+        c5.metric("持有檔數", f"{len(_seen_codes)} 支")
 
         # ── 今日結算（以股計算，避免多筆重複）──
         today_pnl_total = 0.0
@@ -602,13 +675,21 @@ if page == "📊 持倉":
                 # ── 群組損益概覽 ──
                 if _gs["tot_pnl"] is not None:
                     _gc1, _gc2 = st.columns(2)
-                    _gc1.metric("合計未實現損益",
+                    _gc1.metric("合計未實現損益（價差）",
                                 f"NT$ {_gs['tot_pnl']:+,.0f}", delta=f"{_gs['g_pct']:+.2f}%")
                     _tdp2 = prices_map.get(_gs["ticker"], {}).get("today_pct")
                     if _tdp2 is not None and _gs["cur_price"]:
                         _day2 = _tdp2 / 100 * _gs["cur_price"] * _gs["tot_shares"]
                         _gc2.metric("今日損益（合計）",
                                     f"NT$ {_day2:+,.0f}", delta=f"{_tdp2:+.2f}%")
+                # 含息報酬（有配息才顯示）
+                if _gs.get("tot_div", 0) > 0 and _gs.get("tot_return") is not None:
+                    _rp = (f"（{_gs['tot_return_pct']:+.2f}%）"
+                           if _gs.get("tot_return_pct") is not None else "")
+                    st.caption(
+                        f"💰 含息報酬 **NT$ {_gs['tot_return']:+,.0f}**{_rp}"
+                        f"　·　已收配息 NT$ {_gs['tot_div']:,.0f}"
+                    )
 
                 # ── K 線圖（每股一次）──
                 if _gs["ticker"] in ohlc_map:
@@ -674,7 +755,11 @@ if page == "📊 持倉":
                         if _e.get("stop_loss"):
                             _extras.append(f"停損 NT${_e['stop_loss']:,.2f}")
                         if _e.get("dividends"):
-                            _extras.append(f"已收股利 NT${_e['dividends']:,.0f}")
+                            _tr_m = (_pnl + _e["dividends"]) if _pnl is not None else _e["dividends"]
+                            _extras.append(
+                                f"已收股利 NT${_e['dividends']:,.0f}"
+                                f"（含息 {_tr_m:+,.0f}）"
+                            )
                         if _extras:
                             st.caption("　　" + "　｜　".join(_extras))
                         if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
@@ -704,7 +789,7 @@ if page == "📊 持倉":
                             if _e.get("stop_loss"):
                                 st.markdown(f"**停損價：** NT$ {_e['stop_loss']:,.2f}")
                             if _e.get("dividends"):
-                                _tr = (_pnl + _e["dividends"]) if _pnl else _e["dividends"]
+                                _tr = (_pnl + _e["dividends"]) if _pnl is not None else _e["dividends"]
                                 st.markdown(
                                     f"**已收股利：** NT$ {_e['dividends']:,.0f}"
                                     f"　（含股利損益 NT$ {_tr:+,.0f}）"
@@ -723,7 +808,7 @@ if page == "📊 持倉":
                             )
 
                     # ── 操作按鈕（每筆都有）──
-                    _ba, _bb, _bc = st.columns(3)
+                    _ba, _bb, _bc, _bd = st.columns(4)
                     with _ba:
                         _is_editing = st.session_state.editing_idx == _real_idx
                         _el = "✏️ 收起" if _is_editing else "✏️ 編輯"
@@ -731,6 +816,14 @@ if page == "📊 持倉":
                             st.session_state.editing_idx = None if _is_editing else _real_idx
                             st.rerun()
                     with _bb:
+                        _dk = f"show_div_{_real_idx}"
+                        if _dk not in st.session_state:
+                            st.session_state[_dk] = False
+                        _dl2 = "🎁 收起" if st.session_state[_dk] else "🎁 配息"
+                        if st.button(_dl2, key=f"div_btn_{_real_idx}", use_container_width=True):
+                            st.session_state[_dk] = not st.session_state[_dk]
+                            st.rerun()
+                    with _bc:
                         _sk = f"show_sell_{_real_idx}"
                         if _sk not in st.session_state:
                             st.session_state[_sk] = False
@@ -738,7 +831,7 @@ if page == "📊 持倉":
                         if st.button(_sl2, key=f"sell_btn_{_real_idx}", use_container_width=True):
                             st.session_state[_sk] = not st.session_state[_sk]
                             st.rerun()
-                    with _bc:
+                    with _bd:
                         if st.button("🗑️ 刪除", key=f"del_{_real_idx}", use_container_width=True):
                             remove_holding(_real_idx)
                             if st.session_state.editing_idx == _real_idx:
@@ -774,6 +867,61 @@ if page == "📊 持倉":
                             )
                             st.rerun()
 
+                    # ── 配息登錄表單 ──
+                    if st.session_state.get(f"show_div_{_real_idx}", False):
+                        st.divider()
+                        st.caption("🎁 配息明細（手動登錄，不自動抓取）")
+                        _dlog = _e.get("dividend_log", [])
+                        if _dlog:
+                            for _di, _d in enumerate(_dlog):
+                                _dca, _dcb = st.columns([9, 1])
+                                _ps_s = f"　每股 NT${_d['per_share']:g}" if _d.get("per_share") else ""
+                                _nt_s = f"　·　{_d['note']}" if _d.get("note") else ""
+                                _dca.caption(
+                                    f"・{_d.get('date', '—')}　NT$ {_d.get('amount', 0):,.0f}{_ps_s}{_nt_s}"
+                                )
+                                if _dcb.button("🗑️", key=f"deldiv_{_real_idx}_{_di}",
+                                               use_container_width=True):
+                                    remove_dividend(_real_idx, _di)
+                                    st.rerun()
+                            st.caption(f"**累計已收配息：NT$ {sum(x.get('amount', 0) for x in _dlog):,.0f}**")
+                        elif _e.get("dividends"):
+                            st.caption(
+                                f"目前累計 NT$ {_e['dividends']:,.0f}（早期以總額登錄）。"
+                                "下方新增後會改用逐筆明細管理。"
+                            )
+                        with st.form(f"div_form_{_real_idx}"):
+                            _df1, _df2, _df3 = st.columns(3)
+                            with _df1:
+                                _d_date = st.date_input("除息／入帳日", value=datetime.date.today(),
+                                                        key=f"ddate_{_real_idx}")
+                            with _df2:
+                                _d_per = st.number_input("每股配息（元，選填）", min_value=0.0,
+                                                         value=0.0, step=0.1, format="%.4f",
+                                                         key=f"dper_{_real_idx}")
+                            with _df3:
+                                _d_amt = st.number_input("配息金額（元）", min_value=0.0,
+                                                         value=0.0, step=100.0, format="%.0f",
+                                                         key=f"damt_{_real_idx}")
+                            _d_note = st.text_input("備註（選填）", key=f"dnote_{_real_idx}",
+                                                    placeholder="例：2026 Q2 季配")
+                            st.caption("留空金額、只填每股配息時，系統會用「每股 × 本筆股數」自動換算。")
+                            _div_ok = st.form_submit_button("➕ 登錄配息", type="primary",
+                                                            use_container_width=True)
+                        if _div_ok:
+                            _amt = _d_amt
+                            _per = _d_per if _d_per > 0 else None
+                            if _amt <= 0 and _per:
+                                _amt = round(_per * _e["shares"], 2)
+                            if _amt <= 0:
+                                st.error("請輸入配息金額，或填每股配息讓系統換算。")
+                            else:
+                                add_dividend(_real_idx, str(_d_date), _amt,
+                                             per_share=_per, note=_d_note.strip())
+                                st.session_state[f"show_div_{_real_idx}"] = False
+                                st.success(f"✅ 已登錄配息 NT$ {_amt:,.0f}")
+                                st.rerun()
+
                     # ── 編輯表單 ──
                     if st.session_state.editing_idx == _real_idx:
                         st.divider()
@@ -806,10 +954,20 @@ if page == "📊 持倉":
                                 _e_sl = st.number_input("停損價（0=未設）", min_value=0.0,
                                                          value=float(_e.get("stop_loss", 0)),
                                                          step=0.5, format="%.2f")
+                            _has_dlog = bool(_e.get("dividend_log"))
                             with _ef7:
-                                _e_div = st.number_input("已收股利（元）", min_value=0.0,
-                                                          value=float(_e.get("dividends", 0)),
-                                                          step=100.0, format="%.0f")
+                                if _has_dlog:
+                                    _e_div = None
+                                    st.markdown("**已收股利（元）**")
+                                    st.markdown(
+                                        f"NT$ {_e.get('dividends', 0):,.0f}　"
+                                        "<small>由配息明細計算<br>請用 🎁 配息 編輯</small>",
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    _e_div = st.number_input("已收股利（元）", min_value=0.0,
+                                                              value=float(_e.get("dividends", 0)),
+                                                              step=100.0, format="%.0f")
                             _e_reason = st.text_input("買進理由", value=_e.get("buy_reason", ""),
                                                        placeholder="例：本益比偏低、財報轉機")
                             _sv_col, _cl_col = st.columns(2)
@@ -821,10 +979,13 @@ if page == "📊 持倉":
                                                       use_container_width=True)
 
                         if _save_clicked:
-                            update_holding(_real_idx, shares=_e_shares, avg_cost=_e_cost,
-                                           account=_e_acct, date=str(_e_date),
-                                           stop_profit=_e_sp, stop_loss=_e_sl,
-                                           dividends=_e_div, buy_reason=_e_reason)
+                            _upd = dict(shares=_e_shares, avg_cost=_e_cost,
+                                        account=_e_acct, date=str(_e_date),
+                                        stop_profit=_e_sp, stop_loss=_e_sl,
+                                        buy_reason=_e_reason)
+                            if not _has_dlog:          # 有配息明細時不從編輯框覆寫累計
+                                _upd["dividends"] = _e_div
+                            update_holding(_real_idx, **_upd)
                             st.session_state.editing_idx = None
                             st.rerun()
                         if _cancel_clicked:
@@ -857,6 +1018,28 @@ if page == "📊 持倉":
                 st.metric("已實現總損益", f"NT$ {total_realized:+,.0f}")
                 if total_div > 0:
                     st.metric("歷史股利合計", f"NT$ {total_div:,.0f}")
+
+        # ── 日報快照 ──
+        st.divider()
+        with st.expander("🗂️ 日報快照（供台股晨報讀取）"):
+            _snap_msg = st.session_state.pop("_snap_msg", None)
+            if _snap_msg:
+                st.info(_snap_msg)
+            _snap_now = get_snapshot()
+            if _snap_now and _snap_now.get("updated_at"):
+                st.caption(
+                    f"最後更新：{_snap_now['updated_at'][:16]}　·　"
+                    f"行情日：{_snap_now.get('market_date', '—')}　·　"
+                    f"狀態：{_snap_now.get('status', '—')}"
+                )
+            else:
+                st.caption("尚未產生快照。開啟此頁會自動產生（30 分鐘內只寫一次）。")
+            st.caption("快照讓雲端日報拿得到你的行情與損益（日報連不到 Yahoo）。手動更新可立即重寫。")
+            if st.button("🔄 立即更新快照", key="snap_force_btn"):
+                _msg = _maybe_write_snapshot(holdings, force=True)
+                if _msg:
+                    st.session_state["_snap_msg"] = _msg
+                st.rerun()
 
         # ── 帳號管理 ──
         st.divider()

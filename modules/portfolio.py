@@ -38,6 +38,11 @@ def _get_ws():
         return book.add_worksheet(title="portfolio", rows=1, cols=1)
 
 
+def _empty() -> dict:
+    return {"holdings": [], "watchlist": [], "favorites": [],
+            "sold": [], "quick_view_extras": [], "snapshot": None}
+
+
 @st.cache_data(ttl=30)
 def _load_sheets() -> dict:
     try:
@@ -46,7 +51,7 @@ def _load_sheets() -> dict:
             return json.loads(raw)
     except Exception:
         pass
-    return {"holdings": [], "watchlist": [], "favorites": []}
+    return _empty()
 
 
 # ── 本機 JSON（開發模式）─────────────────────────────────────
@@ -56,7 +61,7 @@ def _load_file() -> dict:
             return json.loads(_DATA.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
-    return {"holdings": [], "watchlist": [], "favorites": []}
+    return _empty()
 
 
 # ── 統一讀寫入口 ──────────────────────────────────────────────
@@ -211,6 +216,44 @@ def sell_holding(idx: int, sell_price: float, sell_date: str,
     _save(data)
 
 
+# ── 配息明細 ──────────────────────────────────────────────────
+# dividend_log 是每筆配息的明細（可回溯是哪一次除息）；
+# dividends 欄位保留為累計值（＝log 加總），向後相容舊資料與讀取端。
+def _sync_dividends(h: dict) -> None:
+    """依 dividend_log 重算 dividends 累計值。"""
+    log = h.get("dividend_log", [])
+    h["dividends"] = round(sum(x.get("amount", 0) for x in log), 2)
+
+
+def add_dividend(idx: int, date: str, amount: float,
+                 per_share: float | None = None, note: str = "") -> None:
+    data = _load()
+    if not (0 <= idx < len(data["holdings"])):
+        return
+    h = data["holdings"][idx]
+    entry: dict = {"date": date, "amount": round(amount, 2)}
+    if per_share is not None and per_share > 0:
+        entry["per_share"] = per_share
+    if note:
+        entry["note"] = note
+    h.setdefault("dividend_log", []).append(entry)
+    _sync_dividends(h)
+    _save(data)
+
+
+def remove_dividend(idx: int, log_idx: int) -> None:
+    data = _load()
+    if not (0 <= idx < len(data["holdings"])):
+        return
+    h = data["holdings"][idx]
+    log = h.get("dividend_log", [])
+    if 0 <= log_idx < len(log):
+        log.pop(log_idx)
+        h["dividend_log"] = log
+        _sync_dividends(h)
+        _save(data)
+
+
 # ── 速覽表額外追蹤 ────────────────────────────────────────────
 def get_quick_view_extras() -> list:
     return _load().get("quick_view_extras", [])
@@ -229,4 +272,26 @@ def remove_quick_view_extra(code: str) -> None:
     data = _load()
     extras = data.get("quick_view_extras", [])
     data["quick_view_extras"] = [e for e in extras if e["code"] != code]
+    _save(data)
+
+
+# ── 每日快照（供台股晨報日報讀取）────────────────────────────
+def get_snapshot() -> dict | None:
+    return _load().get("snapshot")
+
+
+def save_snapshot(snapshot: dict) -> None:
+    """只覆寫 snapshot 這一個鍵，其餘持倉資料原封不動。
+
+    覆寫防護：Sheets 模式先清 30 秒快取、重讀最新，才寫回，避免蓋掉使用者
+    剛做的變更。呼叫此函式前 snapshot 必須已組好，讀寫之間不要做耗時運算。
+    """
+    if _use_sheets():
+        _load_sheets.clear()
+    data = _load()
+    # 防呆：快照裡有部位、重讀卻拿不到任何持倉 → 極可能是雲端讀取暫時失敗，
+    # 此時寫回會把 Sheet 上的持倉整個抹掉，寧可不寫（保留舊資料）。
+    if snapshot.get("positions") and not data.get("holdings"):
+        return
+    data["snapshot"] = snapshot
     _save(data)

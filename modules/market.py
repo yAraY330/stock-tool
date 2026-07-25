@@ -148,6 +148,82 @@ def get_current_prices(tickers: tuple) -> dict:
     return result
 
 
+def _strip_suffix(t: str) -> str:
+    if t.endswith(".TWO"):
+        return t[:-4]
+    if t.endswith(".TW"):
+        return t[:-3]
+    return t
+
+
+def _parse_snapshot(prices: pd.Series) -> dict | None:
+    """從單檔 1 年收盤序列算出快照所需欄位。資料不足回 None。"""
+    prices = prices.dropna()
+    n = len(prices)
+    if n < 2:
+        return None
+    p_now  = float(prices.iloc[-1])
+    p_prev = float(prices.iloc[-2])
+
+    def _pct(offset: int) -> float | None:
+        base = float(prices.iloc[-1 - offset]) if n > offset else float(prices.iloc[0])
+        return round((p_now - base) / base * 100, 2) if base else None
+
+    return {
+        "price":       round(p_now, 1),
+        "prev_close":  round(p_prev, 1),
+        "today_pct":   round((p_now - p_prev) / p_prev * 100, 2) if p_prev else None,
+        "w1_pct":      _pct(5),    # 約 1 週前（iloc[-6]）
+        "m1_pct":      _pct(22),   # 約 1 月前（iloc[-23]）
+        "m3_pct":      _pct(63),   # 約 3 月前（iloc[-64]）
+        "week52_high": round(float(prices.max()), 1),
+        "week52_low":  round(float(prices.min()), 1),
+        "history_20d": [round(float(x), 1) for x in prices.iloc[-20:].tolist()],  # 舊→新
+    }
+
+
+@st.cache_data(ttl=300)
+def get_snapshot_data(tickers: tuple) -> dict:
+    """每日快照用：一次 1 年下載同時取得現價、漲跌幅、52 週高低、近 20 日收盤。
+    沿用 .TWO fallback。回傳 {"market_date": "YYYY-MM-DD", "quotes": {code_無後綴: {...}}}。"""
+    raw = yf.download(list(tickers), period="1y", auto_adjust=True, progress=False)
+    close_raw = raw["Close"].ffill()
+    if isinstance(close_raw, pd.Series):
+        close_raw = close_raw.to_frame(name=tickers[0])
+    close = close_raw.dropna(axis=1, how="all")
+
+    market_date = close.index[-1].strftime("%Y-%m-%d") if not close.empty else None
+
+    quotes, missing = {}, []
+    for ticker in tickers:
+        parsed = _parse_snapshot(close.get(ticker, pd.Series()))
+        if parsed:
+            quotes[_strip_suffix(ticker)] = parsed
+        else:
+            missing.append(ticker)
+
+    if missing:
+        two_map = {t[:-3] + ".TWO": t for t in missing
+                   if t.endswith(".TW") and not t.endswith(".TWO")}
+        if two_map:
+            try:
+                raw2 = yf.download(list(two_map), period="1y", auto_adjust=True, progress=False)
+                c2 = raw2["Close"].ffill()
+                if isinstance(c2, pd.Series):
+                    c2 = c2.to_frame(name=list(two_map)[0])
+                c2 = c2.dropna(axis=1, how="all")
+                if market_date is None and not c2.empty:
+                    market_date = c2.index[-1].strftime("%Y-%m-%d")
+                for two_t, orig_t in two_map.items():
+                    parsed = _parse_snapshot(c2.get(two_t, pd.Series()))
+                    if parsed:
+                        quotes[_strip_suffix(orig_t)] = parsed
+            except Exception:
+                pass
+
+    return {"market_date": market_date, "quotes": quotes}
+
+
 def fmt_pct(val: float) -> str:
     arrow = "▲" if val > 0 else ("▼" if val < 0 else "—")
     return f"{arrow} {abs(val):.2f}%"
