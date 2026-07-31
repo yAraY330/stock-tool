@@ -182,9 +182,9 @@ def _parse_snapshot(prices: pd.Series) -> dict | None:
     }
 
 
-@st.cache_data(ttl=300)
-def get_snapshot_data(tickers: tuple) -> dict:
-    """每日快照用：一次 1 年下載同時取得現價、漲跌幅、52 週高低、近 20 日收盤。
+def compute_snapshot_data(tickers: tuple) -> dict:
+    """每日快照用（純運算、無 Streamlit / session 依賴，可離線 headless 呼叫）：
+    一次 1 年下載同時取得現價、漲跌幅、52 週高低、近 20 日收盤。
     沿用 .TWO fallback。回傳 {"market_date": "YYYY-MM-DD", "quotes": {code_無後綴: {...}}}。"""
     raw = yf.download(list(tickers), period="1y", auto_adjust=True, progress=False)
     close_raw = raw["Close"].ffill()
@@ -222,6 +222,12 @@ def get_snapshot_data(tickers: tuple) -> dict:
                 pass
 
     return {"market_date": market_date, "quotes": quotes}
+
+
+@st.cache_data(ttl=300)
+def get_snapshot_data(tickers: tuple) -> dict:
+    """Streamlit 端入口：加 5 分鐘快取，運算與回傳與 compute_snapshot_data 完全相同。"""
+    return compute_snapshot_data(tickers)
 
 
 def fmt_pct(val: float) -> str:

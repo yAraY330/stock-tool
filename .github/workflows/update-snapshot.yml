@@ -1,0 +1,33 @@
+name: 每日更新台股快照
+
+# 把台股收盤快照算好寫回 Google Sheet，讓下游日報不必等有人手動開 app。
+on:
+  schedule:
+    # 台股約 13:30 收盤。cron 是 UTC。
+    - cron: "30 6 * * 1-5"   # UTC 06:30 = 台北 14:30（週一～週五，收盤後）
+    - cron: "0 22 * * 0-4"   # UTC 22:00 = 台北隔天 06:00（清晨備援，週一～週五早上）
+  workflow_dispatch:          # 允許在 Actions 頁面手動觸發（驗證用）
+
+# 週末 / 國定假日跑到也沒關係：yfinance 會回「最後一個交易日」的收盤，屬正常。
+
+jobs:
+  update-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Update snapshot
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          SHEET_ID: 15Bmw-uno3yDFEv6siIiXVYFe2BmtwtAEAeDB9mjT3zI
+        run: python scripts/update_snapshot.py
