@@ -7,7 +7,7 @@ from modules.evaluator import evaluate, price_position
 from modules.market import (
     get_all_prices, get_current_prices, get_ohlc_batch, fmt_pct, get_snapshot_data,
 )
-from modules.snapshot import build_snapshot
+from modules.snapshot import build_snapshot, decide_write
 from modules.knowledge import CHAPTERS
 from modules.portfolio import (
     get_holdings, add_holding, remove_holding, rename_account, update_holding,
@@ -406,17 +406,25 @@ def _maybe_write_snapshot(holdings: list, *, force: bool = False) -> str | None:
             st.session_state["_snap_written"] = True
             return None
     try:
-        tickers = tuple(sorted({format_ticker(h["code"]) for h in holdings}))
+        # 報價範圍＝holdings ∪ watchlist（positions 仍只算 holdings）
+        codes = {h["code"] for h in holdings} | {w["code"] for w in get_watchlist()}
+        tickers = tuple(sorted({format_ticker(c) for c in codes}))
         snap_data = get_snapshot_data(tickers)          # 慢、在寫入鎖外
         quotes = snap_data.get("quotes", {})
         if not quotes:                                   # 全抓不到 → 保留舊快照
             st.session_state["_snap_written"] = True     # 本 session 不再重試洗版
             return "⚠️ 暫時抓不到行情，保留既有快照未更新" if force else None
-        payload = build_snapshot(holdings, quotes,
-                                 snap_data.get("market_date"),
-                                 datetime.datetime.now(_TZ8))
+        now = datetime.datetime.now(_TZ8)
+        new_payload = build_snapshot(holdings, quotes,
+                                     snap_data.get("market_date"), now,
+                                     snap_data.get("stale_codes", []),
+                                     snap_data.get("suspect_codes", []))
+        payload = decide_write(new_payload, get_snapshot(), now)  # 覆寫守門
         save_snapshot(payload)                           # 只覆寫 snapshot 鍵
         st.session_state["_snap_written"] = True
+        if payload.get("skip_reason"):
+            return (f"↩️ 未覆寫（{payload['skip_reason']}），"
+                    f"保留既有快照、僅更新 last_attempt_at") if force else None
         return f"✅ 快照已更新（{payload['updated_at'][:16]}，狀態 {payload['status']}）"
     except Exception as _err:
         return f"⚠️ 快照更新失敗，既有資料未受影響：{_err}" if force else None

@@ -185,21 +185,38 @@ def _parse_snapshot(prices: pd.Series) -> dict | None:
 def compute_snapshot_data(tickers: tuple) -> dict:
     """每日快照用（純運算、無 Streamlit / session 依賴，可離線 headless 呼叫）：
     一次 1 年下載同時取得現價、漲跌幅、52 週高低、近 20 日收盤。
-    沿用 .TWO fallback。回傳 {"market_date": "YYYY-MM-DD", "quotes": {code_無後綴: {...}}}。"""
+    沿用 .TWO fallback。回傳
+        {"market_date": "YYYY-MM-DD", "quotes": {code_無後綴: {...}},
+         "stale_codes": [...], "suspect_codes": [...]}。
+
+    刻意不 .ffill()：批次下載時 ETF 常缺最新一天的列，個股有 → 若 ffill 會把
+    ETF 前一日收盤補進最新日期那格，偽造出 price==prev_close、today_pct==0 的
+    假報價（非交易日污染的根因）。改成每檔用自己去 NaN 後的真實序列，並記錄
+    各自的實際最後資料日期。
+    - market_date：所有抓到的檔中最新的那個日期（真正來自資料，非寫死）。
+    - stale_codes：該檔自己的最後日期 < market_date（確定拿到舊資料）。
+    - suspect_codes：price==prev_close 且 today_pct==0（平盤保險絲，疑似；也可能
+      只是真的收平盤，故與 stale 分開列，不併入同一清單）。"""
     raw = yf.download(list(tickers), period="1y", auto_adjust=True, progress=False)
-    close_raw = raw["Close"].ffill()
+    close_raw = raw["Close"]
     if isinstance(close_raw, pd.Series):
         close_raw = close_raw.to_frame(name=tickers[0])
-    close = close_raw.dropna(axis=1, how="all")
 
-    market_date = close.index[-1].strftime("%Y-%m-%d") if not close.empty else None
+    quotes: dict = {}
+    last_dates: dict = {}
+    missing: list = []
 
-    quotes, missing = {}, []
-    for ticker in tickers:
-        parsed = _parse_snapshot(close.get(ticker, pd.Series()))
+    def _absorb(frame: pd.DataFrame, col: str, code: str) -> bool:
+        series = frame.get(col, pd.Series(dtype=float)).dropna()
+        parsed = _parse_snapshot(series)
         if parsed:
-            quotes[_strip_suffix(ticker)] = parsed
-        else:
+            quotes[code] = parsed
+            last_dates[code] = series.index[-1]
+            return True
+        return False
+
+    for ticker in tickers:
+        if not _absorb(close_raw, ticker, _strip_suffix(ticker)):
             missing.append(ticker)
 
     if missing:
@@ -208,20 +225,27 @@ def compute_snapshot_data(tickers: tuple) -> dict:
         if two_map:
             try:
                 raw2 = yf.download(list(two_map), period="1y", auto_adjust=True, progress=False)
-                c2 = raw2["Close"].ffill()
+                c2 = raw2["Close"]
                 if isinstance(c2, pd.Series):
                     c2 = c2.to_frame(name=list(two_map)[0])
-                c2 = c2.dropna(axis=1, how="all")
-                if market_date is None and not c2.empty:
-                    market_date = c2.index[-1].strftime("%Y-%m-%d")
                 for two_t, orig_t in two_map.items():
-                    parsed = _parse_snapshot(c2.get(two_t, pd.Series()))
-                    if parsed:
-                        quotes[_strip_suffix(orig_t)] = parsed
+                    _absorb(c2, two_t, _strip_suffix(orig_t))
             except Exception:
                 pass
 
-    return {"market_date": market_date, "quotes": quotes}
+    market_ts = max(last_dates.values()) if last_dates else None
+    market_date = market_ts.strftime("%Y-%m-%d") if market_ts is not None else None
+
+    stale_codes, suspect_codes = [], []
+    for code, q in quotes.items():
+        if market_ts is not None and last_dates[code] < market_ts:
+            stale_codes.append(code)                     # 確定舊資料
+        elif (q["price"] is not None and q["prev_close"] is not None
+              and q["price"] == q["prev_close"] and q["today_pct"] == 0):
+            suspect_codes.append(code)                   # 疑似平盤指紋
+
+    return {"market_date": market_date, "quotes": quotes,
+            "stale_codes": sorted(stale_codes), "suspect_codes": sorted(suspect_codes)}
 
 
 @st.cache_data(ttl=300)

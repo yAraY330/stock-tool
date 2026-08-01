@@ -31,12 +31,19 @@ from pathlib import Path
 # 讓 `import modules.*` 能運作（本腳本位於 scripts/ 之下）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Windows 主控台預設 cp950，印 ✓ 等字元會在「寫入成功之後」崩潰、讓排程誤判失敗。
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import gspread
 from google.oauth2.service_account import Credentials
 
 from modules.data import format_ticker
 from modules.market import compute_snapshot_data
-from modules.snapshot import build_snapshot
+from modules.snapshot import build_snapshot, decide_write
 
 _TZ8 = datetime.timezone(datetime.timedelta(hours=8))
 _SCOPES = [
@@ -68,14 +75,19 @@ def _read_data(ws) -> dict:
     return json.loads(raw) if raw else {}
 
 
-def build_payload(data: dict) -> dict | None:
-    """從 Sheet data 算出快照 payload；抓不到任何行情回 None（呼叫端保留舊快照）。"""
+def build_payload(data: dict, now: datetime.datetime) -> dict | None:
+    """從 Sheet data 算出快照 payload；抓不到任何行情回 None（呼叫端保留舊快照）。
+
+    報價範圍＝holdings ∪ watchlist（去重）；positions 仍只算 holdings（觀察清單
+    沒有成本，硬算會產生誤導數字）。"""
     holdings = data.get("holdings", [])
     if not holdings:
         print("• Sheet 沒有持倉，跳過（不覆寫）")
         return None
 
-    tickers = tuple(sorted({format_ticker(h["code"]) for h in holdings}))
+    watchlist = data.get("watchlist", []) or []
+    codes = {h["code"] for h in holdings} | {w["code"] for w in watchlist}
+    tickers = tuple(sorted({format_ticker(c) for c in codes}))
     snap_data = compute_snapshot_data(tickers)
     quotes = snap_data.get("quotes", {})
     if not quotes:
@@ -84,8 +96,9 @@ def build_payload(data: dict) -> dict | None:
 
     return build_snapshot(
         holdings, quotes,
-        snap_data.get("market_date"),
-        datetime.datetime.now(_TZ8),
+        snap_data.get("market_date"), now,
+        snap_data.get("stale_codes", []),
+        snap_data.get("suspect_codes", []),
     )
 
 
@@ -97,14 +110,34 @@ def main() -> int:
 
     ws = _open_worksheet()
     data = _read_data(ws)
+    existing = data.get("snapshot")
+    now = datetime.datetime.now(_TZ8)
 
-    payload = build_payload(data)
-    if payload is None:
-        return 1  # 讓 CI 顯眼（沒更新），但已保留舊資料
+    new_payload = build_payload(data, now)
 
-    print(f"• 算好快照：updated_at={payload['updated_at']} "
-          f"market_date={payload['market_date']} status={payload['status']} "
-          f"positions={len(payload['positions'])}")
+    if new_payload is None:
+        # 沒算出新快照（沒持倉或全抓不到行情）。若已有舊快照，仍前進
+        # last_attempt_at 讓下游知道「排程有跑、只是這次沒資料」；否則沒東西可寫。
+        if not existing:
+            print("• 無新快照且無既有快照，不寫入")
+            return 1
+        final = dict(existing)
+        final["last_attempt_at"] = now.isoformat()
+        final["skip_reason"] = "no_quotes"
+        wrote_new = False
+    else:
+        final = decide_write(new_payload, existing, now)
+        wrote_new = final.get("skip_reason") is None
+
+    if wrote_new:
+        print(f"• 算好快照：updated_at={final['updated_at']} "
+              f"market_date={final['market_date']} status={final['status']} "
+              f"positions={len(final['positions'])} quotes={len(final['quotes'])} "
+              f"stale={final['stale_codes']} suspect={final['suspect_codes']}")
+    else:
+        print(f"• 決定不覆寫（skip_reason={final['skip_reason']}）："
+              f"保留既有 market_date={existing.get('market_date')}，"
+              f"只前進 last_attempt_at={final['last_attempt_at']}")
 
     if args.dry_run:
         print("• --dry-run：不寫入 Sheet")
@@ -113,10 +146,10 @@ def main() -> int:
     # 覆寫防護：寫入前重讀最新一次，只覆寫 snapshot 鍵；
     # 若重讀拿不到任何持倉，極可能是暫時讀取失敗，寧可不寫以免抹掉 Sheet 上的持倉。
     latest = _read_data(ws)
-    if payload.get("positions") and not latest.get("holdings"):
+    if final.get("positions") and not latest.get("holdings"):
         print("⚠ 重讀拿不到持倉，放棄寫入以免抹掉資料")
         return 1
-    latest["snapshot"] = payload
+    latest["snapshot"] = final
     ws.update_cell(1, 1, json.dumps(latest, ensure_ascii=False))
     print("✓ 已寫回 Sheet")
     return 0
