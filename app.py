@@ -1,4 +1,5 @@
 import datetime
+import re
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
@@ -19,237 +20,12 @@ from modules.portfolio import (
     add_dividend, remove_dividend,
     get_snapshot, save_snapshot,
 )
+from modules import ui
+from modules.ui import C   # 色票（單一真相來源在 modules/ui.py）
 
-st.set_page_config(page_title="yAraY的台股溝", page_icon="📊", layout="wide")
+st.set_page_config(page_title="yAraY的台股溝", page_icon="📈", layout="wide")
+st.markdown(ui.global_css(), unsafe_allow_html=True)
 
-# ── 色票常數（單一真相來源）────────────────────────────────────
-C = {
-    "up":         "#ff3b3b",  # 漲（紅）
-    "down":       "#22e55c",  # 跌（亮綠）
-    "accent_bg":  "#ffffff",  # 強調色塊背景（白）
-    "accent_fg":  "#000000",  # 強調色塊文字（黑）
-    "bg":         "#000000",  # 全部背景（純黑）
-    "border":     "#222222",  # 邊框
-    "text":       "#f1f5f9",  # 主要文字
-    "text_sub":   "#666666",  # 次要文字
-    "tab_off":    "#888888",  # tab 未選中文字
-    "heading":    "#5eead4",  # h2/h3 標題（青綠）
-}
-
-st.markdown("""
-<style>
-/* ── 全域容器 ── */
-.main .block-container {
-    padding-top: 1.2rem;
-    padding-bottom: 2rem;
-    max-width: 1200px;
-}
-
-/* ── 標題 ── */
-.stApp h1 {
-    color: #f1f5f9;
-    font-size: 2rem !important;
-    font-weight: 800 !important;
-    letter-spacing: -0.5px;
-}
-
-/* ── 子標題 ── */
-.stApp h2, .stApp h3 {
-    color: #5eead4 !important;
-    font-weight: 600 !important;
-}
-
-/* ── Sidebar 導覽 ── */
-[data-testid="stSidebar"] {
-    border-right: 1px solid #222222;
-    padding-top: 0.5rem;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label {
-    display: flex !important;
-    align-items: center;
-    padding: 10px 14px !important;
-    border-radius: 4px !important;
-    margin-bottom: 2px !important;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.15s ease;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label > div:first-child {
-    display: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
-    background: #ffffff !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p {
-    color: #000000 !important;
-    font-weight: 600 !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)) p {
-    color: #888888;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)):hover {
-    background: #111111 !important;
-}
-[data-testid="stSidebar"] [data-testid="stRadio"] label:not(:has(input:checked)):hover p {
-    color: #f1f5f9 !important;
-}
-
-/* ── Metric 卡片 ── */
-[data-testid="metric-container"] {
-    background: #000000;
-    border: 1px solid #222222;
-    border-radius: 6px;
-    padding: 1rem 1.25rem !important;
-    box-shadow: none;
-    transition: border-color 0.2s ease;
-}
-[data-testid="metric-container"]:hover {
-    border-color: #444444;
-}
-
-/* ── Expander 卡片 ── */
-details {
-    border: 1px solid #222222 !important;
-    border-radius: 6px !important;
-    background: #000000 !important;
-    margin-bottom: 6px !important;
-    transition: border-color 0.2s ease;
-}
-details:hover {
-    border-color: #444444 !important;
-}
-details > summary {
-    padding: 0.7rem 1rem !important;
-    border-radius: 6px !important;
-    font-weight: 500;
-}
-details[open] > summary {
-    border-radius: 6px 6px 0 0 !important;
-    border-bottom: 1px solid #222222 !important;
-    color: #f1f5f9;
-}
-
-/* ── 分隔線 ── */
-hr {
-    border-color: #222222 !important;
-    margin: 1rem 0 !important;
-}
-
-/* ── 互動框白底黑字 ── */
-[data-baseweb="input"],
-[data-baseweb="base-input"],
-[data-baseweb="textarea"],
-[data-testid="stTextInput"] > div,
-[data-testid="stNumberInput"] > div,
-[data-testid="stTextArea"] > div {
-    background-color: #ffffff !important;
-    border-color: #cccccc !important;
-    color: #000000 !important;
-}
-[data-baseweb="input"] input,
-[data-baseweb="base-input"] input,
-[data-baseweb="textarea"] textarea,
-[data-testid="stTextInput"] input,
-[data-testid="stNumberInput"] input,
-[data-testid="stTextArea"] textarea,
-input[type="text"],
-input[type="number"],
-input[type="password"],
-textarea {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    caret-color: #000000 !important;
-}
-input::placeholder,
-textarea::placeholder {
-    color: #888888 !important;
-}
-/* ── Form submit button 黑字 ── */
-[data-testid="stFormSubmitButton"] button,
-[data-testid="stFormSubmitButton"] button[kind="primaryFormSubmit"],
-[data-testid="stFormSubmitButton"] button[kind="secondaryFormSubmit"] {
-    color: #000000 !important;
-    background: #ffffff !important;
-    border: 1px solid #333333 !important;
-}
-[data-baseweb="select"] > div:first-child {
-    background-color: #ffffff !important;
-    border-color: #cccccc !important;
-}
-[data-baseweb="select"] [class*="singleValue"],
-[data-baseweb="select"] [class*="placeholder"] {
-    color: #000000 !important;
-}
-[data-baseweb="popover"] [role="option"] {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-}
-[data-baseweb="popover"] [role="option"]:hover {
-    background-color: #f0f0f0 !important;
-}
-
-/* ── 按鈕 ── */
-.stButton > button {
-    border-radius: 4px !important;
-    font-weight: 500 !important;
-    transition: all 0.15s ease !important;
-    border: 1px solid #333333 !important;
-}
-.stButton > button[kind="primary"] {
-    background: #ffffff !important;
-    color: #000000 !important;
-    border: none !important;
-    box-shadow: none !important;
-}
-.stButton > button[kind="primary"]:hover {
-    background: #e0e0e0 !important;
-    transform: none;
-}
-
-/* ── 警告橫幅 ── */
-.stAlert {
-    border-radius: 4px !important;
-    border-left: 3px solid #333333 !important;
-}
-
-/* ── 下載按鈕 ── */
-.stDownloadButton > button {
-    border-radius: 4px !important;
-    border: 1px solid #ffffff !important;
-    background: transparent !important;
-    color: #ffffff !important;
-}
-
-/* ── 手機響應式 ── */
-@media screen and (max-width: 768px) {
-    .main .block-container {
-        padding-left: 0.6rem !important;
-        padding-right: 0.6rem !important;
-        padding-top: 0.75rem !important;
-    }
-    .stApp h1 {
-        font-size: 1.45rem !important;
-        letter-spacing: -0.3px;
-    }
-    .stButton > button {
-        min-height: 44px !important;
-        font-size: 0.88rem !important;
-    }
-    [data-testid="metric-container"] {
-        padding: 0.7rem 0.85rem !important;
-    }
-    details > summary {
-        font-size: 0.88rem !important;
-        line-height: 1.5 !important;
-        padding: 0.85rem 0.9rem !important;
-    }
-    input[type="text"], input[type="number"] {
-        font-size: 16px !important;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
 
 def _check_password() -> bool:
     if st.session_state.get("authenticated"):
@@ -262,7 +38,7 @@ def _check_password() -> bool:
     if not correct:
         st.session_state.authenticated = True
         return True
-    st.markdown("## 🔐 yAraY的台股溝")
+    st.markdown("# yAraY 的台股溝")
     pwd = st.text_input("請輸入密碼", type="password")
     if st.button("登入", type="primary", use_container_width=True):
         if pwd == correct:
@@ -275,32 +51,26 @@ def _check_password() -> bool:
 if not _check_password():
     st.stop()
 
-st.title("📊 yAraY的台股溝")
-
+PAGES = ["持倉", "速覽", "新增", "觀察", "評估", "知識"]
 for _k, _v in [("eval_ticker", ""), ("csv_imported", False), ("editing_idx", None)]:
     if _k not in st.session_state:
         st.session_state[_k] = _v
+if st.session_state.get("sidebar_nav") not in PAGES:     # 舊版 emoji 選項或第一次開
+    st.session_state.sidebar_nav = PAGES[0]
+
+_TZ8 = datetime.timezone(datetime.timedelta(hours=8))
 
 
 # ── 共用 helper ────────────────────────────────────────────────
-def _build_by_code(items: list) -> dict:
-    by_code: dict[str, dict] = {}
-    for e in items:
-        k = e["code"]
-        if k not in by_code:
-            by_code[k] = {"name": e["name"], "val": 0.0}
-        by_code[k]["val"] += e["current_value"] or e["cost_basis"]
-    return by_code
-
-
-def _make_pie(by_code: dict, title: str, height: int = 300) -> go.Figure:
-    fig = go.Figure(go.Pie(
-        labels=[f"{v['name']}({k})" for k, v in by_code.items()],
-        values=[v["val"] for v in by_code.values()],
-        hole=0.45, textinfo="label+percent",
-    ))
-    fig.update_layout(title=title, height=height,
-                      showlegend=False, margin=dict(l=0, r=0, t=40, b=0))
+def _dark_fig(fig: go.Figure, height: int) -> go.Figure:
+    fig.update_layout(
+        height=height, showlegend=False,
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color=C["text_sub"], family="Noto Sans TC, sans-serif", size=11),
+        margin=dict(l=0, r=0, t=10, b=0),
+    )
+    fig.update_xaxes(gridcolor="#1A1918", zeroline=False, showline=False)
+    fig.update_yaxes(gridcolor="#1A1918", zeroline=False, showline=False)
     return fig
 
 
@@ -309,21 +79,61 @@ def _make_candlestick(df: pd.DataFrame, height: int = 200) -> go.Figure:
         x=df.index,
         open=df["Open"], high=df["High"],
         low=df["Low"],  close=df["Close"],
-        increasing_line_color="#ff3b3b",   # 台灣：紅=漲
-        decreasing_line_color="#22e55c",   # 台灣：綠=跌
+        increasing_line_color=C["up"],   increasing_fillcolor=C["up"],    # 台灣：紅=漲
+        decreasing_line_color=C["down"], decreasing_fillcolor=C["down"],  # 台灣：綠=跌
     ))
-    fig.update_layout(
-        height=height, showlegend=False,
-        xaxis_rangeslider_visible=False,
-        margin=dict(l=0, r=0, t=10, b=0),
-    )
+    _dark_fig(fig, height)
+    fig.update_layout(xaxis_rangeslider_visible=False)
     # 把 x 軸鎖到實際資料範圍，去掉台股 13:30 收盤後的空白留白
     if len(df.index) > 0:
         fig.update_xaxes(range=[df.index.min(), df.index.max()])
     return fig
 
 
-# ── 買入點提醒（頁面頂部，每次開 app 自動檢查）────────────────
+def _safe_key(code: str) -> str:
+    return re.sub(r"[^0-9A-Za-z]", "_", code)
+
+
+def _html(s: str) -> None:
+    st.markdown(s, unsafe_allow_html=True)
+
+
+def _day_contrib(groups: dict, prices_map: dict) -> dict:
+    """每檔今天貢獻多少損益（以股計算）。抓不到今日漲跌的不列入。"""
+    out = {}
+    for code, gs in groups.items():
+        pct = prices_map.get(gs["ticker"], {}).get("today_pct")
+        if pct is not None and gs["cur_price"]:
+            prev = gs["cur_price"] / (1 + pct / 100)
+            out[code] = (gs["cur_price"] - prev) * gs["tot_shares"]
+    return out
+
+
+def _focus_line(contrib: dict, names: dict) -> str:
+    if not contrib:
+        return ""
+    best = max(contrib, key=contrib.get)
+    worst = min(contrib, key=contrib.get)
+    parts = []
+    if contrib[best] > 0:
+        parts.append(f'<span>最大貢獻　<span style="color:{C["text"]}">{names[best]}</span> '
+                     f'<span class="n" style="color:{C["up"]}">{ui.signed(contrib[best])}</span></span>')
+    if contrib[worst] < 0:
+        parts.append(f'<span>最大拖累　<span style="color:{C["text"]}">{names[worst]}</span> '
+                     f'<span class="n" style="color:{C["down"]}">{ui.signed(contrib[worst])}</span></span>')
+    if not parts:
+        return ""
+    return ('<div style="margin-top:14px;display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;'
+            f'color:{C["text_sub"]}">' + "".join(parts) + "</div>")
+
+
+def _page_head(title: str, right: str = "") -> None:
+    _html(f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin:8px 0 18px">'
+          f'<h1 style="margin:0">{title}</h1><span style="font-size:13px;color:{C["text_sub"]}">{right}</span></div>')
+
+
+# ── 頂部提醒：買入點、停利、停損（每次開 app 自動檢查）──────────────
+_ALERTS: list = []
 _wl_targets = [w for w in get_watchlist() if float(w.get("target_price", 0)) > 0]
 if _wl_targets:
     _alert_tickers = tuple(sorted({format_ticker(w["code"]) for w in _wl_targets}))
@@ -333,14 +143,11 @@ if _wl_targets:
             _cur = _alert_prices.get(format_ticker(_w["code"]), {}).get("price")
             _tgt = float(_w["target_price"])
             if _cur and _cur <= _tgt:
-                st.warning(
-                    f"⚡ **買入點提醒**：{_w['name']}（{_w['code']}）"
-                    f"現價 **NT$ {_cur:,.1f}** 已達到你設定的目標 NT$ {_tgt:,.1f}"
-                )
+                _ALERTS.append(("buy", f"{_w['name']}（{_w['code']}）到了目標買入價",
+                                f"現價 NT$ {_cur:,.1f}，你設的目標是 NT$ {_tgt:,.1f}。"))
     except Exception:
         pass
 
-# ── 停利／停損提醒 ────────────────────────────────────────────
 _sl_holdings = [h for h in get_holdings() if h.get("stop_profit") or h.get("stop_loss")]
 if _sl_holdings:
     _sl_tickers = tuple(sorted({format_ticker(h["code"]) for h in _sl_holdings}))
@@ -351,29 +158,20 @@ if _sl_holdings:
             if not _cur:
                 continue
             if _h.get("stop_profit") and _cur >= _h["stop_profit"]:
-                st.success(
-                    f"🎯 **停利提醒**：{_h['name']}（{_h['code']}）"
-                    f"現價 **NT$ {_cur:,.1f}** 已達停利點 NT$ {_h['stop_profit']:,.1f}"
-                )
+                _ALERTS.append(("profit", f"{_h['name']}（{_h['code']}）到了停利點",
+                                f"現價 NT$ {_cur:,.1f}，你設的停利是 NT$ {_h['stop_profit']:,.1f}。"))
             if _h.get("stop_loss") and _cur <= _h["stop_loss"]:
-                st.error(
-                    f"🛑 **停損提醒**：{_h['name']}（{_h['code']}）"
-                    f"現價 **NT$ {_cur:,.1f}** 已達停損點 NT$ {_h['stop_loss']:,.1f}"
-                )
+                _why = "當初的買進理由還成立嗎？" if _h.get("buy_reason") else ""
+                _ALERTS.append(("loss", f"{_h['name']}（{_h['code']}）跌破停損",
+                                f"現價 NT$ {_cur:,.1f}，你設的停損是 NT$ {_h['stop_loss']:,.1f}。{_why}"))
     except Exception:
         pass
 
-with st.sidebar:
-    st.markdown("### 📊 台股溝")
-    st.divider()
-    page = st.radio(
-        "navigation",
-        ["📊 持倉", "⚡ 速覽", "➕ 新增", "👁️ 觀察", "🔍 評估", "📚 知識"],
-        label_visibility="collapsed",
-        key="sidebar_nav",
-    )
-    st.divider()
-    st.caption("⚠️ 本工具僅供個人記錄參考，不構成任何投資建議。")
+# ── 底部導覽（CSS 固定在畫面底部，見 modules/ui.py）──────────────
+page = st.radio(
+    "navigation", PAGES, horizontal=True,
+    label_visibility="collapsed", key="sidebar_nav",
+)
 
 
 # ── 每日快照（供台股晨報日報讀取）────────────────────────────
@@ -413,7 +211,7 @@ def _maybe_write_snapshot(holdings: list, *, force: bool = False) -> str | None:
         quotes = snap_data.get("quotes", {})
         if not quotes:                                   # 全抓不到 → 保留舊快照
             st.session_state["_snap_written"] = True     # 本 session 不再重試洗版
-            return "⚠️ 暫時抓不到行情，保留既有快照未更新" if force else None
+            return "暫時抓不到行情，保留既有快照未更新" if force else None
         now = datetime.datetime.now(_TZ8)
         new_payload = build_snapshot(holdings, quotes,
                                      snap_data.get("market_date"), now,
@@ -423,21 +221,22 @@ def _maybe_write_snapshot(holdings: list, *, force: bool = False) -> str | None:
         save_snapshot(payload)                           # 只覆寫 snapshot 鍵
         st.session_state["_snap_written"] = True
         if payload.get("skip_reason"):
-            return (f"↩️ 未覆寫（{payload['skip_reason']}），"
+            return (f"未覆寫（{payload['skip_reason']}），"
                     f"保留既有快照、僅更新 last_attempt_at") if force else None
-        return f"✅ 快照已更新（{payload['updated_at'][:16]}，狀態 {payload['status']}）"
+        return f"快照已更新（{payload['updated_at'][:16]}，狀態 {payload['status']}）"
     except Exception as _err:
-        return f"⚠️ 快照更新失敗，既有資料未受影響：{_err}" if force else None
+        return f"快照更新失敗，既有資料未受影響：{_err}" if force else None
 
 
 # ── 持倉管理 ─────────────────────────────────────────────────
-if page == "📊 持倉":
-    st.header("我的持倉")
+if page == "持倉":
     holdings  = get_holdings()
     favorites = get_favorites()
 
     if holdings:
         accounts = get_accounts(holdings)
+        hero_slot  = st.container()      # 首屏數字要等算完才填，先佔位
+        alert_slot = st.container()
 
         # 控制列：帳號選擇 + 排序
         ctrl1, ctrl2 = st.columns([2, 3])
@@ -448,7 +247,7 @@ if page == "📊 持倉":
                 selected_account = "全部帳號"
         with ctrl2:
             sort_mode = st.radio(
-                "排序方式",
+                "排序",
                 ["預設", "損益高→低", "帳號分組", "最愛優先"],
                 horizontal=True, key="sort_mode",
             )
@@ -464,6 +263,10 @@ if page == "📊 持倉":
             ohlc_map = get_ohlc_batch(unique_tickers)
         except Exception:
             ohlc_map = {}
+        try:   # 今日走勢線；與速覽「當日」同參數，共用快取
+            intra_map = get_ohlc_batch(unique_tickers, period="1d", interval="15m")
+        except Exception:
+            intra_map = {}
 
         # 自動寫入每日快照（受節流保護：同 session 一次、未滿 30 分鐘跳過）
         _maybe_write_snapshot(holdings)
@@ -555,127 +358,123 @@ if page == "📊 持倉":
         total_ret_pct = (total_return / _priced_cost * 100) if (total_return is not None and _priced_cost) else None
         _has_div     = total_div > 0
 
-        label_prefix = "" if selected_account == "全部帳號" else f"{selected_account}．"
-        if _has_div:
-            c1, c2, c3, c4, c5 = st.columns(5)
-        else:
-            c1, c2, c3, c4 = st.columns(4)
-            c5 = c4
-        c1.metric(f"{label_prefix}投入成本", f"NT$ {total_cost:,.0f}")
-        c2.metric(f"{label_prefix}總市值",   f"NT$ {total_value:,.0f}" if total_value is not None else "—")
-        if total_pnl is not None:
-            c3.metric("未實現損益（價差）", f"NT$ {total_pnl:+,.0f}",
-                      delta=f"{total_pct:+.2f}%" if total_pct is not None else None)
-        if _has_div and total_return is not None:
-            c4.metric("含息報酬", f"NT$ {total_return:+,.0f}",
-                      delta=f"{total_ret_pct:+.2f}%" if total_ret_pct is not None else None,
-                      help="價差損益 ＋ 已收配息。除息當天股價被扣除，含息報酬才是你的真實處境。")
-        c5.metric("持有檔數", f"{len(_seen_codes)} 支")
+        # ── 今日損益（以股計算，避免多筆重複）──
+        _contrib = _day_contrib({c: _gsumm[c] for c in _seen_codes}, prices_map)
+        today_pnl_total = sum(_contrib.values())
+        _prev_total = (total_value or 0) - today_pnl_total
+        today_pct = today_pnl_total / _prev_total * 100 if _prev_total else None
 
-        # ── 今日結算（以股計算，避免多筆重複）──
-        today_pnl_total = 0.0
-        for _c0 in _seen_codes:
-            _gs0  = _gsumm[_c0]
-            _tdp0 = prices_map.get(_gs0["ticker"], {}).get("today_pct")
-            if _tdp0 and _gs0["cur_price"]:
-                today_pnl_total += _tdp0 / 100 * _gs0["cur_price"] * _gs0["tot_shares"]
-        with st.expander(f"📈 今日結算　{'▲' if today_pnl_total >= 0 else '▼'} NT$ {today_pnl_total:+,.0f}"):
+        # 今日走勢：各檔 15 分 K × 股數 加總，減去昨收市值
+        _intra_html = ""
+        try:
+            _series, _base = [], 0.0
             for _c0 in _seen_codes:
-                _gs0  = _gsumm[_c0]
-                _tdp0 = prices_map.get(_gs0["ticker"], {}).get("today_pct")
-                if _tdp0 is None or not _gs0["cur_price"]:
+                _gs0 = _gsumm[_c0]
+                _df0 = intra_map.get(_gs0["ticker"])
+                if _c0 not in _contrib or _df0 is None or _df0.empty:
                     continue
-                _day0  = _tdp0 / 100 * _gs0["cur_price"] * _gs0["tot_shares"]
-                _arr0  = "▲" if _tdp0 > 0 else "▼"
-                st.caption(f"{_gs0['name']}（{_c0}）　{_arr0} {abs(_tdp0):.2f}%　今日 {_day0:+,.0f} 元")
+                _series.append(_df0["Close"] * _gs0["tot_shares"])
+                _base += _gs0["tot_val"] - _contrib[_c0]
+            if _series:
+                _tot = pd.concat(_series, axis=1).ffill().dropna().sum(axis=1)
+                if len(_tot) >= 2:
+                    _intra_html = ui.intraday_chart(
+                        [float(v) - _base for v in _tot],
+                        _tot.index[0].strftime("%H:%M"), _tot.index[-1].strftime("%H:%M"))
+        except Exception:
+            _intra_html = ""
 
-        # ── 集中度警示（以股計算）──
+        label_prefix = "" if selected_account == "全部帳號" else f"{selected_account}　"
+        _stats = [
+            ("總市值", f"{total_value:,.0f}" if total_value is not None else "—", C["text"], None, None),
+            ("投入成本", f"{total_cost:,.0f}", C["text"], None, None),
+            ("未實現損益（價差）", ui.signed(total_pnl), ui.tone(total_pnl),
+             f"{total_pct:+.2f}%" if total_pct is not None else None, ui.tone(total_pnl)),
+        ]
+        if _has_div:
+            _stats.append(("含息報酬", ui.signed(total_return), ui.tone(total_return),
+                           (f"{total_ret_pct:+.2f}%　已收配息 {total_div:,.0f}" if total_ret_pct is not None else None),
+                           C["text_sub"]))
+        else:
+            _stats.append(("持有檔數", f"{len(_seen_codes)} 檔", C["text"], None, None))
+
+        _today_line = (f'<div class="n" style="margin-top:10px;font-size:15px;color:{ui.tone(today_pnl_total)}">'
+                       f'{today_pct:+.2f}%<span style="color:{C["text_sub"]}">　持股 {len(_seen_codes)} 檔</span></div>'
+                       if today_pct is not None else "")
+        with hero_slot:
+            _html(
+                f'<div style="display:flex;justify-content:space-between;font-size:13px;color:{C["text_sub"]};margin-top:8px">'
+                f'<span>yAraY 的台股溝</span><span>{label_prefix}{datetime.datetime.now(_TZ8).month} 月 {datetime.datetime.now(_TZ8).day} 日</span></div>'
+                f'<div style="margin-top:28px;font-size:14px;color:{C["text_sub"]}">今天</div>'
+                + ui.odometer(today_pnl_total) + _today_line + _intra_html
+                + _focus_line(_contrib, {c: _gsumm[c]["name"] for c in _seen_codes})
+                + ui.stat_grid(_stats)
+            )
+            if _has_div:
+                st.caption("除息當天股價會被扣掉，含息報酬才是你的真實處境。")
+
+        # ── 提醒（全域提醒＋集中度）──
+        _conc = []
         if total_value:
             for _c0 in _seen_codes:
                 _gs0 = _gsumm[_c0]
                 if _gs0["tot_val"] and _gs0["tot_val"] / total_value > 0.4:
-                    st.warning(
-                        f"⚠️ **集中度警示**：{_gs0['name']}（{_c0}）"
-                        f"佔總市值 {_gs0['tot_val']/total_value*100:.1f}%，超過 40%，注意風險集中。"
-                    )
-
-        # ── 圓餅圖：全部帳號→N 個，單帳號→1 個 ──
-        if selected_account == "全部帳號" and len(accounts) > 1:
-            n_cols   = min(len(accounts), 3)
-            pie_cols = st.columns(n_cols)
-            for i, acct in enumerate(accounts):
-                acct_items = [e for e in all_enriched if e.get("account", "預設帳號") == acct]
-                by_code    = _build_by_code(acct_items)
-                if by_code:
-                    with pie_cols[i % n_cols]:
-                        st.plotly_chart(_make_pie(by_code, acct, height=280), use_container_width=True)
-        else:
-            by_code = _build_by_code(enriched)
-            if by_code:
-                st.plotly_chart(_make_pie(by_code, "持倉分配（市值比例）"), use_container_width=True)
+                    _conc.append(("concentration", f"{_gs0['name']} 佔了 {_gs0['tot_val'] / total_value * 100:.1f}%",
+                                  "超過總市值 40%，風險集中。加碼前可以先到「新增」預覽加入後的比例。"))
+        with alert_slot:
+            _html(ui.alerts(_ALERTS + _conc))
 
         # ── 持倉明細（群組顯示）──
-        st.subheader("持倉明細")
+        _html(f'<div style="display:grid;grid-template-columns:minmax(0,1fr) 64px 104px;column-gap:12px;'
+              f'margin-top:22px;padding-bottom:6px;font-size:12px;color:{C["faint"]};border-bottom:1px solid {C["line"]}">'
+              f'<span>持倉　點一檔看明細</span><span style="text-align:center">5 日</span>'
+              f'<span style="text-align:right">市值／損益</span></div>')
 
-        for _code in _seen_codes:
+        for _ri, _code in enumerate(_seen_codes):
             _lots   = _grp[_code]
             _gs     = _gsumm[_code]
             _is_fav = _code in favorites
 
             _detail_key = f"h_detail_{_code}"
             _is_open    = st.session_state.get(_detail_key, False)
-            _badge_txt  = _code[:4]
-            _fav_star   = "★ " if _is_fav else ""
-            _val_str    = f"NT$ {_gs['tot_val']:,.0f}" if _gs["tot_val"] else "—"
-            _pnl_clr    = (C["up"] if (_gs["tot_pnl"] or 0) > 0
-                           else C["down"] if (_gs["tot_pnl"] or 0) < 0 else C["text_sub"])
-            _pnl_arr    = "▲" if (_gs["tot_pnl"] or 0) > 0 else ("▼" if (_gs["tot_pnl"] or 0) < 0 else "")
-            _pnl_disp   = (f"{_pnl_arr} NT${abs(_gs['tot_pnl']):,.0f} ({abs(_gs['g_pct']):.2f}%)"
-                           if _gs["tot_pnl"] is not None else "—")
-            _sub_parts  = [f"{_gs['tot_shares']:.4g} 股"]
+            _val_str    = f"{_gs['tot_val']:,.0f}" if _gs["tot_val"] else "—"
+            _pnl_disp   = (f"{ui.signed(_gs['tot_pnl'])}　{_gs['g_pct']:+.1f}%"
+                           if _gs["tot_pnl"] is not None and _gs["g_pct"] is not None else "—")
+            _sub_parts  = [f"{_code}　{_gs['tot_shares']:,.4g} 股"]
             if len(_lots) > 1:
                 _sub_parts.append(f"{len(_lots)} 筆")
             if selected_account == "全部帳號":
-                _accts_s = "/".join(sorted({_e.get("account", "預設帳號") for _e in _lots}))
-                _sub_parts.append(_accts_s)
-            _sub_line   = " · ".join(_sub_parts)
+                _sub_parts.append("/".join(sorted({_e.get("account", "預設帳號") for _e in _lots})))
+            _closes = (ohlc_map[_gs["ticker"]]["Close"].dropna().tail(5).tolist()
+                       if _gs["ticker"] in ohlc_map else [])
 
-            _rca, _rcb  = st.columns([9, 1])
-            with _rca:
-                st.markdown(f"""<div style="display:flex;align-items:center;gap:12px;padding:10px 2px;">
-  <div style="width:44px;height:44px;border-radius:4px;background:#ffffff;display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:700;color:#000000;flex-shrink:0;font-family:monospace;">{_badge_txt}</div>
-  <div style="flex:1;min-width:0;overflow:hidden;">
-    <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_fav_star}{_gs['name']}</div>
-    <div style="font-size:0.76rem;color:#666666;">{_sub_line}</div>
-  </div>
-  <div style="text-align:right;flex-shrink:0;">
-    <div style="font-weight:600;font-size:0.93rem;color:#f1f5f9;">{_val_str}</div>
-    <div style="font-size:0.76rem;color:{_pnl_clr};">{_pnl_disp}</div>
-  </div>
-</div>""", unsafe_allow_html=True)
-            with _rcb:
-                if st.button("▲" if _is_open else "▼", key=f"tog_{_code}", use_container_width=True):
+            with st.container(key=f"hrow_{_safe_key(_code)}"):
+                _html(ui.holding_row(_gs["name"], "　".join(_sub_parts), ui.spark(_closes, _ri),
+                                     _val_str, _pnl_disp, ui.tone(_gs["tot_pnl"]), _is_fav))
+                if st.button(f"{'收起' if _is_open else '展開'} {_gs['name']}",
+                             key=f"hrowbtn_{_safe_key(_code)}"):
                     st.session_state[_detail_key] = not _is_open
                     st.rerun()
-            st.markdown('<div style="border-top:1px solid #222222;margin-bottom:4px;"></div>', unsafe_allow_html=True)
+            _html(f'<div style="border-top:1px solid {C["line"]}"></div>')
+
 
             if _is_open:
                 # ── 群組操作列：收藏、評估頁、基本面 ──
-                _gba, _gbb, _gbc = st.columns(3)
+                _gba = _gbb = _gbc = st.container(horizontal=True)
                 with _gba:
-                    _fl = "★ 已收藏" if _is_fav else "☆ 最愛"
+                    _fl = "取消收藏" if _is_fav else "收藏"
                     if st.button(_fl, key=f"fav_grp_{_code}", use_container_width=True):
                         toggle_favorite(_code)
                         st.rerun()
                 with _gbb:
-                    if st.button("🔍 評估頁", key=f"pe_grp_{_code}", use_container_width=True):
+                    if st.button("評估頁", key=f"pe_grp_{_code}", use_container_width=True):
                         st.session_state.eval_ticker = _code.replace(".TW", "")
-                        st.session_state.sidebar_nav = "🔍 評估"
+                        st.session_state.sidebar_nav = "評估"
                         st.rerun()
                 with _gbc:
                     _eval_key    = f"show_eval_grp_{_code}"
                     _eval_active = st.session_state.get(_eval_key, False)
-                    _eval_label  = "📊 收起" if _eval_active else "📊 基本面"
+                    _eval_label  = "收起基本面" if _eval_active else "基本面"
                     if st.button(_eval_label, key=f"eval_btn_grp_{_code}", use_container_width=True):
                         st.session_state[_eval_key] = not _eval_active
                         st.rerun()
@@ -684,18 +483,20 @@ if page == "📊 持倉":
                 if _gs["tot_pnl"] is not None:
                     _gc1, _gc2 = st.columns(2)
                     _gc1.metric("合計未實現損益（價差）",
-                                f"NT$ {_gs['tot_pnl']:+,.0f}", delta=f"{_gs['g_pct']:+.2f}%")
+                                f"NT$ {_gs['tot_pnl']:+,.0f}", delta=f"{_gs['g_pct']:+.2f}%",
+                                delta_color="inverse")   # 台股：紅漲綠跌
                     _tdp2 = prices_map.get(_gs["ticker"], {}).get("today_pct")
                     if _tdp2 is not None and _gs["cur_price"]:
                         _day2 = _tdp2 / 100 * _gs["cur_price"] * _gs["tot_shares"]
                         _gc2.metric("今日損益（合計）",
-                                    f"NT$ {_day2:+,.0f}", delta=f"{_tdp2:+.2f}%")
+                                    f"NT$ {_day2:+,.0f}", delta=f"{_tdp2:+.2f}%",
+                                    delta_color="inverse")
                 # 含息報酬（有配息才顯示）
                 if _gs.get("tot_div", 0) > 0 and _gs.get("tot_return") is not None:
                     _rp = (f"（{_gs['tot_return_pct']:+.2f}%）"
                            if _gs.get("tot_return_pct") is not None else "")
                     st.caption(
-                        f"💰 含息報酬 **NT$ {_gs['tot_return']:+,.0f}**{_rp}"
+                        f"含息報酬 **NT$ {_gs['tot_return']:+,.0f}**{_rp}"
                         f"　·　已收配息 NT$ {_gs['tot_div']:,.0f}"
                     )
 
@@ -726,7 +527,7 @@ if page == "📊 持倉":
                             st.progress(min(max(_prog / 100, 0.0), 1.0))
                             st.caption(_pos["label"])
                         if _info.get("quote_type") == "ETF":
-                            st.info("📌 ETF：本益比、淨利率等指標不適用")
+                            st.info("ETF：本益比、淨利率等指標不適用")
                         for _m in evaluate(_info)[:4]:
                             st.caption(f"**{_m['label']}**　{_m['explanation']}")
                     else:
@@ -772,7 +573,7 @@ if page == "📊 持倉":
                             st.caption("　　" + "　｜　".join(_extras))
                         if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
                             st.warning(
-                                f"📋 **第 {_li+1} 筆已下跌 {_pnl_pct:.1f}%，買進理由：**\n\n"
+                                f"**第 {_li+1} 筆已下跌 {_pnl_pct:.1f}%，買進理由：**\n\n"
                                 f"> {_e['buy_reason']}\n\n**這個理由現在還成立嗎？**"
                             )
                     else:
@@ -804,22 +605,22 @@ if page == "📊 持倉":
                                 )
                         with _cb:
                             if _pnl is not None:
-                                st.metric("未實現損益", f"NT$ {_pnl:+,.0f}", delta=f"{_pnl_pct:+.2f}%")
+                                st.metric("未實現損益", f"NT$ {_pnl:+,.0f}", delta=f"{_pnl_pct:+.2f}%", delta_color="inverse")
                             _tp_s = prices_map.get(_e["ticker"], {}).get("today_pct")
                             if _tp_s is not None and _e["current"]:
                                 _day_s = _tp_s / 100 * _e["current"] * _e["shares"]
-                                st.metric("今日損益", f"NT$ {_day_s:+,.0f}", delta=f"{_tp_s:+.2f}%")
+                                st.metric("今日損益", f"NT$ {_day_s:+,.0f}", delta=f"{_tp_s:+.2f}%", delta_color="inverse")
                         if _pnl_pct is not None and _pnl_pct < -8 and _e.get("buy_reason"):
                             st.warning(
-                                f"📋 **這支股票已下跌 {_pnl_pct:.1f}%，當初買進理由是：**\n\n"
+                                f"**這支股票已下跌 {_pnl_pct:.1f}%，當初買進理由是：**\n\n"
                                 f"> {_e['buy_reason']}\n\n**這個理由現在還成立嗎？**"
                             )
 
                     # ── 操作按鈕（每筆都有）──
-                    _ba, _bb, _bc, _bd = st.columns(4)
+                    _ba = _bb = _bc = _bd = st.container(horizontal=True)
                     with _ba:
                         _is_editing = st.session_state.editing_idx == _real_idx
-                        _el = "✏️ 收起" if _is_editing else "✏️ 編輯"
+                        _el = "收起編輯" if _is_editing else "編輯"
                         if st.button(_el, key=f"edit_btn_{_real_idx}", use_container_width=True):
                             st.session_state.editing_idx = None if _is_editing else _real_idx
                             st.rerun()
@@ -827,7 +628,7 @@ if page == "📊 持倉":
                         _dk = f"show_div_{_real_idx}"
                         if _dk not in st.session_state:
                             st.session_state[_dk] = False
-                        _dl2 = "🎁 收起" if st.session_state[_dk] else "🎁 配息"
+                        _dl2 = "收起配息" if st.session_state[_dk] else "配息"
                         if st.button(_dl2, key=f"div_btn_{_real_idx}", use_container_width=True):
                             st.session_state[_dk] = not st.session_state[_dk]
                             st.rerun()
@@ -835,12 +636,12 @@ if page == "📊 持倉":
                         _sk = f"show_sell_{_real_idx}"
                         if _sk not in st.session_state:
                             st.session_state[_sk] = False
-                        _sl2 = "💰 收起" if st.session_state[_sk] else "💰 賣出"
+                        _sl2 = "收起賣出" if st.session_state[_sk] else "賣出"
                         if st.button(_sl2, key=f"sell_btn_{_real_idx}", use_container_width=True):
                             st.session_state[_sk] = not st.session_state[_sk]
                             st.rerun()
                     with _bd:
-                        if st.button("🗑️ 刪除", key=f"del_{_real_idx}", use_container_width=True):
+                        if st.button("刪除", key=f"del_{_real_idx}", use_container_width=True):
                             remove_holding(_real_idx)
                             if st.session_state.editing_idx == _real_idx:
                                 st.session_state.editing_idx = None
@@ -870,7 +671,7 @@ if page == "📊 持倉":
                             sell_holding(_real_idx, _s_price, str(_s_date), _s_shares)
                             st.session_state[f"show_sell_{_real_idx}"] = False
                             st.success(
-                                f"✅ 已記錄賣出 {_s_shares:.4g} 股，"
+                                f"已記錄賣出 {_s_shares:.4g} 股，"
                                 f"損益 NT$ {(_s_price - _e['avg_cost']) * _s_shares:+,.0f}"
                             )
                             st.rerun()
@@ -878,7 +679,7 @@ if page == "📊 持倉":
                     # ── 配息登錄表單 ──
                     if st.session_state.get(f"show_div_{_real_idx}", False):
                         st.divider()
-                        st.caption("🎁 配息明細（手動登錄，不自動抓取）")
+                        st.caption("配息明細（手動登錄，不自動抓取）")
                         _dlog = _e.get("dividend_log", [])
                         if _dlog:
                             for _di, _d in enumerate(_dlog):
@@ -888,7 +689,7 @@ if page == "📊 持倉":
                                 _dca.caption(
                                     f"・{_d.get('date', '—')}　NT$ {_d.get('amount', 0):,.0f}{_ps_s}{_nt_s}"
                                 )
-                                if _dcb.button("🗑️", key=f"deldiv_{_real_idx}_{_di}",
+                                if _dcb.button("刪除", key=f"deldiv_{_real_idx}_{_di}",
                                                use_container_width=True):
                                     remove_dividend(_real_idx, _di)
                                     st.rerun()
@@ -914,7 +715,7 @@ if page == "📊 持倉":
                             _d_note = st.text_input("備註（選填）", key=f"dnote_{_real_idx}",
                                                     placeholder="例：2026 Q2 季配")
                             st.caption("留空金額、只填每股配息時，系統會用「每股 × 本筆股數」自動換算。")
-                            _div_ok = st.form_submit_button("➕ 登錄配息", type="primary",
+                            _div_ok = st.form_submit_button("登錄配息", type="primary",
                                                             use_container_width=True)
                         if _div_ok:
                             _amt = _d_amt
@@ -927,7 +728,7 @@ if page == "📊 持倉":
                                 add_dividend(_real_idx, str(_d_date), _amt,
                                              per_share=_per, note=_d_note.strip())
                                 st.session_state[f"show_div_{_real_idx}"] = False
-                                st.success(f"✅ 已登錄配息 NT$ {_amt:,.0f}")
+                                st.success(f"已登錄配息 NT$ {_amt:,.0f}")
                                 st.rerun()
 
                     # ── 編輯表單 ──
@@ -969,7 +770,7 @@ if page == "📊 持倉":
                                     st.markdown("**已收股利（元）**")
                                     st.markdown(
                                         f"NT$ {_e.get('dividends', 0):,.0f}　"
-                                        "<small>由配息明細計算<br>請用 🎁 配息 編輯</small>",
+                                        "<small>由配息明細計算<br>請用「配息」編輯</small>",
                                         unsafe_allow_html=True,
                                     )
                                 else:
@@ -980,10 +781,10 @@ if page == "📊 持倉":
                                                        placeholder="例：本益比偏低、財報轉機")
                             _sv_col, _cl_col = st.columns(2)
                             with _sv_col:
-                                _save_clicked   = st.form_submit_button("💾 儲存",
+                                _save_clicked   = st.form_submit_button("儲存",
                                                       type="primary", use_container_width=True)
                             with _cl_col:
-                                _cancel_clicked = st.form_submit_button("✖ 取消",
+                                _cancel_clicked = st.form_submit_button("取消",
                                                       use_container_width=True)
 
                         if _save_clicked:
@@ -1007,7 +808,7 @@ if page == "📊 持倉":
         _sold = get_sold()
         if _sold:
             st.divider()
-            with st.expander(f"📋 已賣出紀錄（共 {len(_sold)} 筆）"):
+            with st.expander(f"已賣出紀錄（共 {len(_sold)} 筆）"):
                 sold_rows = []
                 for s in _sold:
                     sold_rows.append({
@@ -1029,7 +830,7 @@ if page == "📊 持倉":
 
         # ── 日報快照 ──
         st.divider()
-        with st.expander("🗂️ 日報快照（供台股晨報讀取）"):
+        with st.expander("日報快照（供台股晨報讀取）"):
             _snap_msg = st.session_state.pop("_snap_msg", None)
             if _snap_msg:
                 st.info(_snap_msg)
@@ -1043,7 +844,7 @@ if page == "📊 持倉":
             else:
                 st.caption("尚未產生快照。開啟此頁會自動產生（30 分鐘內只寫一次）。")
             st.caption("快照讓雲端日報拿得到你的行情與損益（日報連不到 Yahoo）。手動更新可立即重寫。")
-            if st.button("🔄 立即更新快照", key="snap_force_btn"):
+            if st.button("立即更新快照", key="snap_force_btn"):
                 _msg = _maybe_write_snapshot(holdings, force=True)
                 if _msg:
                     st.session_state["_snap_msg"] = _msg
@@ -1051,7 +852,7 @@ if page == "📊 持倉":
 
         # ── 帳號管理 ──
         st.divider()
-        with st.expander("⚙️ 帳號管理"):
+        with st.expander("帳號管理"):
             rename_acct = st.selectbox("選擇要改名的帳號", accounts, key="rename_select")
             rename_new  = st.text_input("新名稱", key="rename_input", placeholder="例：永豐金、凱基")
             if st.button("確認改名", key="rename_btn"):
@@ -1068,12 +869,14 @@ if page == "📊 持倉":
                     st.rerun()
 
     else:
-        st.info("目前沒有持倉記錄。請前往「➕ 新增持倉」頁面新增你的第一筆。")
+        st.info("目前沒有持倉。點下方「新增」加入第一筆。")
 
 
 # ── 速覽 ─────────────────────────────────────────────────────
-elif page == "⚡ 速覽":
-    st.header("速覽表")
+elif page == "速覽":
+    _now8 = datetime.datetime.now(_TZ8)
+    _page_head("速覽", f"{_now8.month} 月 {_now8.day} 日")
+    _html(ui.alerts(_ALERTS))
 
     sv_holdings = get_holdings()
     sv_extras   = get_quick_view_extras()
@@ -1090,14 +893,15 @@ elif page == "⚡ 速覽":
             except Exception:
                 sv_prices = {}
 
-        # ── 建立持倉 P&L 查詢表（依代碼合併多筆）──
+        # ── 持倉 P&L 與股數（依代碼合併多筆）──
         sv_pnl_map = {}
         for h in sv_holdings:
             ticker = format_ticker(h["code"])
             cur    = sv_prices.get(ticker, {}).get("price")
             code   = h["code"]
             if code not in sv_pnl_map:
-                sv_pnl_map[code] = {"tot_shares": 0, "tot_cost": 0, "cur": cur}
+                sv_pnl_map[code] = {"tot_shares": 0, "tot_cost": 0, "cur": cur, "cur_price": cur,
+                                    "ticker": ticker, "name": h["name"]}
             sv_pnl_map[code]["tot_shares"] += h["shares"]
             sv_pnl_map[code]["tot_cost"]   += h["shares"] * h["avg_cost"]
         for _sc, _sd in sv_pnl_map.items():
@@ -1109,11 +913,66 @@ elif page == "⚡ 速覽":
             else:
                 _sd["tot_val"] = _sd["pnl"] = _sd["pnl_pct"] = None
 
-        # ── K 線區間 ──
+        # ── 今日焦點：最大貢獻／拖累 ──
+        _sv_contrib = _day_contrib(sv_pnl_map, sv_prices)
+        if _sv_contrib:
+            _today_sum = sum(_sv_contrib.values())
+            _best  = max(_sv_contrib, key=_sv_contrib.get)
+            _worst = min(_sv_contrib, key=_sv_contrib.get)
+
+            def _focus_cell(label: str, code: str) -> str:
+                v = _sv_contrib[code]
+                pct = sv_prices.get(sv_pnl_map[code]["ticker"], {}).get("today_pct")
+                share = (f"佔今日獲利 {v / _today_sum * 100:.0f}%" if v > 0 and _today_sum > 0
+                         else f"今日 {pct:+.2f}%" if pct is not None else "")
+                return (f'<div style="background:{C["raised"]};padding:16px 14px;min-width:0">'
+                        f'<div style="font-size:13px;color:{C["text_sub"]}">{label}</div>'
+                        f'<div style="margin-top:10px;font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;'
+                        f'text-overflow:ellipsis">{sv_pnl_map[code]["name"]}</div>'
+                        f'<div class="n" style="font-size:30px;font-weight:300;line-height:1.2;color:{ui.tone(v)}">{ui.signed(v)}</div>'
+                        f'<div class="n" style="font-size:12px;color:{C["text_sub"]}">{share}</div></div>')
+
+            _cells = [_focus_cell("今天最大貢獻", _best)]
+            if _worst != _best:
+                _cells.append(_focus_cell("今天最大拖累", _worst))
+            _html(f'<div style="display:grid;grid-template-columns:repeat({len(_cells)},minmax(0,1fr));gap:1px;'
+                  f'background:{C["line"]};border:1px solid {C["line"]};margin-top:8px">' + "".join(_cells) + "</div>")
+
+        # ── 近 6 週每日損益月曆（目前股數 × 每日收盤推算）──
+        if sv_holding_tickers:
+            try:
+                _hist = get_ohlc_batch(sv_holding_tickers, period="3mo")
+            except Exception:
+                _hist = {}
+            _vals = []
+            for _sd in sv_pnl_map.values():
+                _df = _hist.get(_sd["ticker"])
+                if _df is not None and not _df.empty:
+                    _vals.append(_df["Close"] * _sd["tot_shares"])
+            if _vals:
+                _port = pd.concat(_vals, axis=1).ffill().dropna().sum(axis=1)
+                _chg  = _port.diff().dropna()
+                _daily = {ts.date(): float(v) for ts, v in _chg.items()}
+                _today8 = _now8.date()
+                _cut = _today8 - datetime.timedelta(days=_today8.weekday(), weeks=5)
+                _sum_m = {}
+                for _d, _v in _daily.items():
+                    if _d >= _cut:
+                        _sum_m[_d.month] = _sum_m.get(_d.month, 0) + _v
+                _msum = "　".join(f"{m} 月 {ui.signed(v)}" for m, v in sorted(_sum_m.items()))
+                _html(f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin:30px 0 12px">'
+                      f'<h2 style="margin:0">近 6 週每日損益</h2>'
+                      f'<span class="n" style="font-size:12px;color:{C["faint"]}">{_msum}</span></div>'
+                      + ui.pnl_calendar(_daily, _today8))
+                st.caption("以目前持股回推各日收盤價估算，期間有買賣時會有誤差。外框＝今天。")
+
+        # ── 個股走勢 ──
+        _html('<h2 style="margin:30px 0 0">個股走勢</h2>')
         _period_map   = {"當日": ("1d", "15m"), "週": ("5d", "1d"), "月": ("1mo", "1d")}
-        sv_period_sel = st.radio("K 線區間", list(_period_map), horizontal=True, index=2)
+        sv_period_sel = st.radio("區間", list(_period_map), horizontal=True, index=2,
+                                 label_visibility="collapsed")
         _kline_period, _kline_interval = _period_map[sv_period_sel]
-        with st.spinner("載入 K 線資料中..."):
+        with st.spinner("載入走勢中..."):
             try:
                 sv_ohlc = get_ohlc_batch(sv_all_tickers, period=_kline_period, interval=_kline_interval)
             except Exception:
@@ -1130,89 +989,68 @@ elif page == "⚡ 速覽":
                 sv_display.append({"code": e["code"], "name": e["name"], "is_holding": False})
                 sv_seen.add(e["code"])
 
-        # ── 合併卡片（資訊 + K 線）──
-        for i in range(0, len(sv_display), 2):
-            cols = st.columns(2)
-            for j, item in enumerate(sv_display[i:i + 2]):
-                ticker    = format_ticker(item["code"])
-                price_now = sv_prices.get(ticker, {}).get("price")
-                today_pct = sv_prices.get(ticker, {}).get("today_pct")
-                price_str = f"NT$ {price_now:,.1f}" if price_now else "—"
-                td_clr    = C["up"] if (today_pct or 0) > 0 else (C["down"] if (today_pct or 0) < 0 else C["text_sub"])
-                td_arr    = "▲" if (today_pct or 0) > 0 else ("▼" if (today_pct or 0) < 0 else "")
-                td_str    = f"{td_arr} {abs(today_pct):.2f}%" if today_pct is not None else "—"
-                badge_txt = item["code"][:4]
-                fav_star  = "★ " if item["is_holding"] else ""
+        _cards = []
+        for i, item in enumerate(sv_display):
+            ticker    = format_ticker(item["code"])
+            price_now = sv_prices.get(ticker, {}).get("price")
+            today_pct = sv_prices.get(ticker, {}).get("today_pct")
+            _closes   = sv_ohlc[ticker]["Close"].dropna().tolist() if ticker in sv_ohlc else []
+            _foot = ""
+            if item["is_holding"] and item["code"] in sv_pnl_map and sv_pnl_map[item["code"]]["pnl"] is not None:
+                _pd = sv_pnl_map[item["code"]]
+                _foot = (f'<div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px;'
+                         f'color:{C["text_sub"]}"><span>未實現</span><span class="n" style="color:{ui.tone(_pd["pnl"])}">'
+                         f'{ui.signed(_pd["pnl"])}</span></div>')
+            elif not item["is_holding"]:
+                _foot = f'<div style="margin-top:6px;font-size:12px;color:{C["faint"]}">額外追蹤</div>'
+            _cards.append(ui.stock_card(
+                item["name"], item["code"],
+                f"{price_now:,.2f}" if price_now else "—",
+                f"{today_pct:+.2f}%" if today_pct is not None else "—", ui.tone(today_pct),
+                ui.spark(_closes, i, w=140, h=40) if len(_closes) >= 2
+                else f'<div style="height:40px;font-size:12px;color:{C["faint"]}">無法載入走勢</div>',
+                _foot))
+        _html(f'<div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;margin-top:12px;'
+              f'background:{C["line"]};border:1px solid {C["line"]}">' + "".join(_cards) + "</div>")
 
-                with cols[j]:
-                    with st.container(border=True):
-                        st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;padding:4px 2px 4px 2px;">
-  <div style="width:38px;height:38px;border-radius:4px;background:#ffffff;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:700;color:#000000;flex-shrink:0;font-family:monospace;">{badge_txt}</div>
-  <div style="flex:1;min-width:0;">
-    <div style="font-weight:600;font-size:0.85rem;color:#f1f5f9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{fav_star}{item['name']}</div>
-    <div style="font-size:0.7rem;color:#666666;">{item['code']}</div>
-  </div>
-  <div style="text-align:right;flex-shrink:0;">
-    <div style="font-weight:700;font-size:0.88rem;color:#f1f5f9;">{price_str}</div>
-    <div style="font-size:0.7rem;color:{td_clr};">{td_str}</div>
-  </div>
-</div>""", unsafe_allow_html=True)
-                        if ticker in sv_ohlc:
-                            st.plotly_chart(
-                                _make_candlestick(sv_ohlc[ticker], height=150),
-                                use_container_width=True,
-                                key=f"sv_kline_{item['code']}",
-                            )
-                        else:
-                            st.caption("無法載入 K 線資料")
-                        if item["is_holding"] and item["code"] in sv_pnl_map:
-                            _pd = sv_pnl_map[item["code"]]
-                            if _pd["pnl"] is not None:
-                                _p_clr = C["up"] if _pd["pnl"] > 0 else C["down"]
-                                _p_arr = "▲" if _pd["pnl"] > 0 else "▼"
-                                st.markdown(
-                                    f'<div style="display:flex;justify-content:space-between;'
-                                    f'padding:2px 2px 4px 2px;font-size:0.75rem;">'
-                                    f'<span style="color:#666666;">未實現損益</span>'
-                                    f'<span style="color:{_p_clr};font-weight:600;">'
-                                    f'{_p_arr} NT${abs(_pd["pnl"]):,.0f} ({abs(_pd["pnl_pct"]):.2f}%)'
-                                    f'</span></div>',
-                                    unsafe_allow_html=True,
-                                )
-                        if not item["is_holding"]:
-                            if st.button("移除", key=f"sv_rm_{item['code']}", use_container_width=True):
-                                remove_quick_view_extra(item["code"])
-                                st.rerun()
+        # 額外追蹤的移除按鈕
+        _extras_shown = [e for e in sv_display if not e["is_holding"]]
+        if _extras_shown:
+            st.caption("移除額外追蹤")
+            with st.container(horizontal=True):
+                for item in _extras_shown:
+                    if st.button(f"移除 {item['name']}", key=f"sv_rm_{item['code']}"):
+                        remove_quick_view_extra(item["code"])
+                        st.rerun()
     else:
-        st.info("持倉為空。新增持倉後，速覽表會自動顯示。")
+        st.info("持倉為空。新增持倉後，速覽會自動顯示。")
 
     # ── 新增額外追蹤股票 ──
-    st.divider()
-    st.subheader("➕ 新增其他股票到速覽表")
+    _html('<h2 style="margin:28px 0 0">加入其他股票到速覽</h2>')
     with st.form("sv_add_form", clear_on_submit=True):
-        sv_code      = st.text_input("股票代碼", placeholder="例：0050、2330")
+        sv_code      = st.text_input("股票代碼", placeholder="例：2454")
         sv_submitted = st.form_submit_button("加入", type="primary", use_container_width=True)
 
     if sv_submitted:
         if not sv_code.strip():
             st.error("請輸入股票代碼")
         else:
-            sv_ticker_input = format_ticker(sv_code.strip())
             sv_input_upper  = sv_code.strip().upper()
             extra_codes     = {e["code"] for e in sv_extras}
             if sv_input_upper in sv_holding_codes:
-                st.info(f"**{sv_input_upper}** 已在你的持倉中，速覽表已自動顯示此股票，不需要另外新增。")
+                st.info(f"{sv_input_upper} 已在你的持倉中，速覽會自動顯示，不需要另外新增。")
             elif sv_input_upper in extra_codes:
-                st.warning(f"**{sv_input_upper}** 已在速覽表的額外追蹤中。")
+                st.warning(f"{sv_input_upper} 已在速覽的額外追蹤中。")
             else:
                 add_quick_view_extra(sv_input_upper, sv_input_upper)
-                st.success(f"✅ 已加入：{sv_input_upper}（名稱將在速覽表載入時自動更新）")
+                st.success(f"已加入：{sv_input_upper}（名稱會在速覽載入時自動更新）")
                 st.rerun()
 
 
 # ── 新增持倉 ─────────────────────────────────────────────────
-elif page == "➕ 新增":
-    st.header("新增持倉")
+elif page == "新增":
+    _page_head("新增持倉", "改數字看下方預覽")
+    _html(ui.alerts(_ALERTS))
 
     _has_sheets = False
     try:
@@ -1221,42 +1059,109 @@ elif page == "➕ 新增":
         pass
     if not _has_sheets:
         st.warning(
-            "💾 **資料暫存中** — 目前沒有設定 Google Sheets，"
-            "資料存在本機，App 重新啟動後會消失。"
-            "請參考專案中的 **SETUP.md** 完成 Google Sheets 設定以永久保存資料。"
+            "資料暫存中：目前沒有設定 Google Sheets，資料存在本機，App 重新啟動後會消失。"
+            "請參考專案中的 SETUP.md 完成 Google Sheets 設定以永久保存資料。"
         )
 
-    st.subheader("手動新增")
+    # 新增成功後清空欄位（必須在欄位建立前清）
+    # （直接刪 key 欄位不會清空，要寫回預設值）
+    if st.session_state.pop("_add_reset", False):
+        st.session_state.update({
+            "add_code": "", "add_shares": 0.0, "add_cost": 0.0, "add_date": datetime.date.today(),
+            "add_acct_new": "", "add_sp": 0.0, "add_sl": 0.0, "add_note": "", "add_reason": "",
+        })
+    _add_msg = st.session_state.pop("_add_msg", None)
+    if _add_msg:
+        st.success(_add_msg)
+
     existing_accounts = get_accounts(get_holdings())
-    with st.form("add_holding_form", clear_on_submit=True):
-        c1, c2, c3, c4, c5 = st.columns(5)
-        with c1:
-            new_code   = st.text_input("股票代碼", placeholder="例：2330")
-        with c2:
-            new_shares = st.number_input("股數", min_value=0.0, step=1.0, format="%.4g")
-        with c3:
-            new_cost   = st.number_input("平均成本（元）", min_value=0.0, step=0.01, format="%.2f")
-        with c4:
-            new_date   = st.date_input("買入日期")
-        with c5:
-            acct_options = existing_accounts + (["＋新增帳號"] if existing_accounts else [])
-            if acct_options:
-                acct_select = st.selectbox("帳號", acct_options)
+    # 不用 st.form：每次輸入都要重算下方的分配預覽
+    c1, c2 = st.columns(2)
+    with c1:
+        new_code   = st.text_input("股票代碼", placeholder="例：2330", key="add_code")
+        new_cost   = st.number_input("平均成本（元）", min_value=0.0, step=0.01, format="%.2f", key="add_cost")
+    with c2:
+        new_shares = st.number_input("股數", min_value=0.0, step=1.0, format="%.4g", key="add_shares")
+        new_date   = st.date_input("買入日期", key="add_date")
+    acct_options = existing_accounts + (["＋新增帳號"] if existing_accounts else [])
+    if acct_options:
+        acct_select = st.radio("帳號", acct_options, horizontal=True, key="add_acct")
+    else:
+        acct_select = "＋新增帳號"
+    if acct_select == "＋新增帳號" or not acct_options:
+        new_account = st.text_input("帳號名稱", placeholder="例：永豐、富邦", key="add_acct_new")
+    else:
+        new_account = acct_select
+    ca1, ca2 = st.columns(2)
+    with ca1:
+        new_sp = st.number_input("停利價（選填，0＝未設）", min_value=0.0, step=0.5, format="%.2f", key="add_sp")
+    with ca2:
+        new_sl = st.number_input("停損價（選填，0＝未設）", min_value=0.0, step=0.5, format="%.2f", key="add_sl")
+    new_reason = st.text_input("買進理由（選填）", placeholder="例：本益比低於同業、財報轉機、殖利率高",
+                               key="add_reason")
+    st.caption("之後跌超過 8%，會拿這句話問你「還成立嗎」。")
+    new_note = st.text_input("備註（選填）", placeholder="例：定期定額、逢低加碼", key="add_note")
+
+    # ── 加入後的持倉分配預覽 ──
+    _cur_hold = get_holdings()
+    if _cur_hold:
+        _pv_tickers = tuple(sorted({format_ticker(h["code"]) for h in _cur_hold}))
+        try:
+            _pv_prices = get_current_prices(_pv_tickers)
+        except Exception:
+            _pv_prices = {}
+        _before: dict[str, list] = {}
+        for h in _cur_hold:
+            _p = _pv_prices.get(format_ticker(h["code"]), {}).get("price")
+            _v = h["shares"] * (_p or h["avg_cost"])
+            if h["code"] not in _before:
+                _before[h["code"]] = [h["name"], 0.0, _p]
+            _before[h["code"]][1] += _v
+        _code_in = new_code.strip().upper()
+        _add_val = 0.0
+        if _code_in and new_shares > 0:
+            _known_price = _before.get(_code_in, [None, 0, None])[2]
+            _add_val = new_shares * (_known_price or new_cost)
+        _after = {k: [v[0], v[1]] for k, v in _before.items()}
+        if _add_val > 0:
+            if _code_in in _after:
+                _after[_code_in][1] += _add_val
             else:
-                acct_select = "＋新增帳號"
-            if acct_select == "＋新增帳號" or not acct_options:
-                new_account = st.text_input("帳號名稱", placeholder="例：永豐、富邦")
-            else:
-                new_account = acct_select
-        ca1, ca2, ca3 = st.columns(3)
-        with ca1:
-            new_sp = st.number_input("停利價（選填，0=未設）", min_value=0.0, step=0.5, format="%.2f")
-        with ca2:
-            new_sl = st.number_input("停損價（選填，0=未設）", min_value=0.0, step=0.5, format="%.2f")
-        with ca3:
-            new_note = st.text_input("備註（選填）", placeholder="例：定期定額、逢低加碼")
-        new_reason = st.text_input("買進理由（選填）", placeholder="例：本益比低於同業、財報轉機、殖利率高")
-        submitted = st.form_submit_button("新增", type="primary", use_container_width=True)
+                _after[_code_in] = [f"{_code_in}（新）", _add_val]
+        _b_items = [(k, v[0], v[1]) for k, v in _before.items()]
+        _a_items = [(k, v[0], v[1]) for k, v in _after.items()]
+        _a_total = sum(v for _, _, v in _a_items) or 1
+        _mine_pct = _after[_code_in][1] / _a_total * 100 if (_add_val > 0 and _code_in in _after) else None
+        _any_over = any(v / _a_total > 0.4 for _, _, v in _a_items)
+
+        _html(
+            f'<div style="margin-top:26px;padding-top:18px;border-top:1px solid {C["line"]}">'
+            '<h2 style="margin:0">加入後的持倉分配</h2>'
+            f'<div style="margin-top:14px;display:grid;grid-template-columns:44px minmax(0,1fr);row-gap:10px;'
+            f'align-items:center;font-size:12px;color:{C["faint"]}">'
+            f'<span>現在</span>{ui.alloc_strip(_b_items, legend=False)}'
+            f'<span>加入後</span>{ui.alloc_strip(_a_items, legend=False, mark=_code_in)}</div>'
+            f'<div style="position:relative;margin:4px 0 0 44px;height:14px">'
+            f'<span style="position:absolute;left:40%;top:0;bottom:0;width:1px;background:#6E6A64"></span>'
+            f'<span style="position:absolute;left:40%;top:0;transform:translateX(4px);font-size:11px;color:{C["faint"]}">40% 上限</span></div>'
+            f'<div style="margin-top:6px">{ui.alloc_strip(_a_items, legend=True)}</div></div>'
+        )
+        if _mine_pct is None:
+            _v_title, _v_body, _v_bd = "輸入代碼與股數就會預覽", "", C["line"]
+        elif _mine_pct > 40:
+            _v_title = f"{_after[_code_in][0]} 加入後會佔 {_mine_pct:.1f}%，超過 40%"
+            _v_body = f"這筆約 NT$ {_add_val:,.0f}。確定要再集中嗎？可以考慮減少股數，或先把買進理由寫清楚。"
+            _v_bd = "#5A2A26"
+        elif _any_over:
+            _v_title, _v_body, _v_bd = "這筆沒問題，但其他持股已超過 40%", f"這筆約 NT$ {_add_val:,.0f}。", C["line"]
+        else:
+            _v_title, _v_body, _v_bd = "加入後各檔都在 40% 以內", f"這筆約 NT$ {_add_val:,.0f}。", C["line"]
+        _v_clr = C["up"] if (_mine_pct or 0) > 40 else C["text"]
+        _html(f'<div style="margin-top:16px;padding:12px 14px;border:1px solid {_v_bd};background:{C["raised"]}">'
+              f'<div style="font-size:14px;font-weight:500;color:{_v_clr}">{_v_title}</div>'
+              f'<div style="font-size:13px;color:{C["text_sub"]};margin-top:2px">{_v_body}</div></div>')
+
+    submitted = st.button("新增這筆持倉", type="primary", use_container_width=True, key="add_submit")
 
     if submitted:
         account_name = new_account.strip() if new_account.strip() else "預設帳號"
@@ -1276,14 +1181,16 @@ elif page == "➕ 新增":
             add_holding(new_code.strip().upper(), stock_name,
                         new_shares, new_cost, str(new_date), new_note, account_name,
                         stop_profit=new_sp, stop_loss=new_sl, buy_reason=new_reason.strip())
-            st.success(f"✅ 已新增【{account_name}】{stock_name}（{new_code.strip().upper()}）{new_shares:.4g} 股")
+            st.session_state["_add_msg"] = (f"已新增【{account_name}】{stock_name}"
+                                            f"（{new_code.strip().upper()}）{new_shares:.4g} 股")
+            st.session_state["_add_reset"] = True
             st.rerun()
 
     # ── 匯出現有持倉（換到雲端時用）──
     holdings_now = get_holdings()
     if holdings_now:
         st.divider()
-        st.subheader("📤 匯出持倉 CSV")
+        st.subheader("匯出持倉 CSV")
         st.caption("換到雲端版時，先匯出、部署後再用「從 CSV 批次匯入」還原資料。")
         _df_exp = pd.DataFrame(holdings_now).reindex(
             columns=["code", "name", "shares", "avg_cost", "account", "date", "note"],
@@ -1291,7 +1198,7 @@ elif page == "➕ 新增":
         )
         _df_exp.columns = ["股票代碼", "股票名稱", "股數", "平均成本", "帳號", "買入日期", "備註"]
         st.download_button(
-            "⬇️ 下載持倉 CSV",
+            "下載持倉 CSV",
             data=_df_exp.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig"),
             file_name="我的持倉.csv",
             mime="text/csv",
@@ -1307,7 +1214,7 @@ elif page == "➕ 新增":
         "0050,500,145.00,富邦,2024-03-01,範例請刪除\n"
     )
     st.download_button(
-        "📄 下載 CSV 範本",
+        "下載 CSV 範本",
         data=_TEMPLATE.encode("utf-8-sig"),
         file_name="持倉範本.csv",
         mime="text/csv",
@@ -1342,7 +1249,7 @@ elif page == "➕ 新增":
                     st.caption(f"預覽（共 {len(df_csv)} 筆，確認無誤後點擊匯入）")
                     st.dataframe(df_csv.reset_index(drop=True), use_container_width=True, hide_index=True)
 
-                    if st.button(f"✅ 確認匯入 {len(df_csv)} 筆", type="primary"):
+                    if st.button(f"確認匯入 {len(df_csv)} 筆", type="primary"):
                         with st.spinner("匯入中，自動查詢股票名稱..."):
                             for _, row in df_csv.iterrows():
                                 code     = str(row["股票代碼"]).strip().upper()
@@ -1368,15 +1275,16 @@ elif page == "➕ 新增":
             st.error(f"讀取 CSV 失敗：{ex}")
 
     if st.session_state.csv_imported:
-        st.success("✅ 匯入完成！切換到「持倉管理」頁面查看結果。")
+        st.success("匯入完成！到「持倉」頁查看結果。")
         if st.button("匯入另一份 CSV"):
             st.session_state.csv_imported = False
             st.rerun()
 
 
 # ── 觀察清單 ─────────────────────────────────────────────────
-elif page == "👁️ 觀察":
-    st.header("觀察清單")
+elif page == "觀察":
+    _page_head("觀察清單")
+    _html(ui.alerts(_ALERTS))
     watchlist = get_watchlist()
 
     if watchlist:
@@ -1398,7 +1306,7 @@ elif page == "👁️ 觀察":
             m1_str    = fmt_pct(m1) if m1 is not None else "—"
 
             with st.expander(
-                f"👁️ {w['name']}（{w['code']}）　"
+                f"{w['name']}（{w['code']}）　"
                 f"現價 {price_str}　1週 {w1_str}　1月 {m1_str}"
             ):
                 if w.get("note"):
@@ -1417,29 +1325,29 @@ elif page == "👁️ 觀察":
                 target = float(w.get("target_price", 0))
                 if target > 0:
                     if price and price <= target:
-                        st.success(f"⚡ 已達到目標買入價 NT$ {target:,.2f}！現價 NT$ {price:,.1f}")
+                        st.success(f"已達到目標買入價 NT$ {target:,.2f}！現價 NT$ {price:,.1f}")
                     elif price:
-                        st.info(f"🎯 目標買入價：NT$ {target:,.2f}　（現價還需再跌 NT$ {price - target:,.1f}）")
+                        st.info(f"目標買入價：NT$ {target:,.2f}　（現價還需再跌 NT$ {price - target:,.1f}）")
                     else:
-                        st.info(f"🎯 目標買入價：NT$ {target:,.2f}")
+                        st.info(f"目標買入價：NT$ {target:,.2f}")
 
                 tgt_key = f"edit_tgt_{i}"
                 if tgt_key not in st.session_state:
                     st.session_state[tgt_key] = False
 
-                wb1, wb2, wb3 = st.columns(3)
+                wb1 = wb2 = wb3 = st.container(horizontal=True)
                 with wb1:
-                    tgt_label = "✏️ 收起" if st.session_state[tgt_key] else "🎯 目標價"
+                    tgt_label = "收起" if st.session_state[tgt_key] else "目標價"
                     if st.button(tgt_label, key=f"tgt_btn_{i}", use_container_width=True):
                         st.session_state[tgt_key] = not st.session_state[tgt_key]
                         st.rerun()
                 with wb2:
-                    if st.button("🔍 評估", key=f"we_{i}", use_container_width=True):
+                    if st.button("評估", key=f"we_{i}", use_container_width=True):
                         st.session_state.eval_ticker = w["code"]
-                        st.session_state.sidebar_nav = "🔍 評估"
+                        st.session_state.sidebar_nav = "評估"
                         st.rerun()
                 with wb3:
-                    if st.button("🗑️ 移除", key=f"wr_{i}", use_container_width=True):
+                    if st.button("移除", key=f"wr_{i}", use_container_width=True):
                         remove_from_watchlist(i)
                         st.rerun()
 
@@ -1449,7 +1357,7 @@ elif page == "👁️ 觀察":
                             "目標買入價（填 0 表示取消設定）",
                             min_value=0.0, value=target, step=0.5, format="%.2f",
                         )
-                        if st.form_submit_button("💾 儲存", type="primary",
+                        if st.form_submit_button("儲存", type="primary",
                                                   use_container_width=True):
                             update_watchlist_item(i, target_price=new_target)
                             st.session_state[tgt_key] = False
@@ -1458,7 +1366,7 @@ elif page == "👁️ 觀察":
         st.info("觀察清單是空的，請使用下方表單新增你想追蹤的股票。")
 
     st.divider()
-    st.subheader("➕ 新增觀察標的")
+    st.subheader("新增觀察標的")
     with st.form("add_watchlist_form", clear_on_submit=True):
         wc1, wc2, wc3 = st.columns([1, 2, 1])
         with wc1:
@@ -1484,15 +1392,16 @@ elif page == "👁️ 觀察":
                     st.error("找不到此股票代碼，請確認後再試")
                 else:
                     add_to_watchlist(wl_code.strip().upper(), wl_name, wl_note, wl_target)
-                    st.success(f"✅ 已加入觀察清單：{wl_name}（{wl_code.strip().upper()}）")
+                    st.success(f"已加入觀察清單：{wl_name}（{wl_code.strip().upper()}）")
                     st.rerun()
             except Exception:
                 st.error("查詢失敗，請確認代碼是否正確")
 
 
 # ── 股票評估 ─────────────────────────────────────────────────
-elif page == "🔍 評估":
-    st.header("股票評估工具")
+elif page == "評估":
+    _page_head("股票評估")
+    _html(ui.alerts(_ALERTS))
     st.write("輸入台股代碼，解讀這支股票的基本面數字。")
 
     ticker_input = st.text_input(
@@ -1535,33 +1444,33 @@ elif page == "🔍 評估":
                 fig.add_trace(go.Scatter(
                     x=history.index, y=history["Close"],
                     mode="lines", name="收盤價",
-                    line=dict(color="#5eead4", width=2),
+                    line=dict(color=C["text"], width=1.6),
                 ))
-                fig.update_layout(
-                    title="近一年股價走勢",
-                    xaxis_title="日期", yaxis_title="股價（NTD）",
-                    height=350, margin=dict(l=0, r=0, t=40, b=0),
-                )
+                _dark_fig(fig, 320)
+                st.caption("近一年股價走勢")
                 st.plotly_chart(fig, use_container_width=True)
 
             st.divider()
             st.subheader("基本面指標解讀")
             is_etf = info.get("quote_type") == "ETF"
             if is_etf:
-                st.info("📌 ETF 是一籃子股票，不是單一公司，所以本益比、淨利率、營收成長率這類指標通常沒有資料。這是正常現象。")
+                st.info("ETF 是一籃子股票，不是單一公司，所以本益比、淨利率、營收成長率這類指標通常沒有資料。這是正常現象。")
             for m in evaluate(info):
-                with st.expander(f"📊 {m['label']}　→　{m['explanation']}"):
-                    st.info(f"💬 新手小知識：{m['beginner_tip']}")
+                with st.expander(f"{m['label']}：{m['explanation']}"):
+                    st.info(f"新手小知識：{m['beginner_tip']}")
 
 
 # ── 補知識 ───────────────────────────────────────────────────
-elif page == "📚 知識":
-    st.header("台股補知識")
+elif page == "知識":
+    _page_head("台股補知識")
     st.caption("從零開始學台股，點開每個問題查看解答。")
 
     for chapter in CHAPTERS:
-        st.subheader(f"{chapter['icon']} {chapter['title']}")
+        st.subheader(chapter["title"])
         for sec in chapter["sections"]:
-            with st.expander(f"❓ {sec['q']}"):
+            with st.expander(sec["q"]):
                 st.markdown(sec["a"])
         st.divider()
+
+
+st.caption("本工具僅供個人記錄參考，不構成投資建議。")
