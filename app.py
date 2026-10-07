@@ -38,14 +38,26 @@ def _check_password() -> bool:
     if not correct:
         st.session_state.authenticated = True
         return True
-    st.markdown("# yAraY 的台股溝")
-    pwd = st.text_input("請輸入密碼", type="password")
-    if st.button("登入", type="primary", use_container_width=True):
-        if pwd == correct:
-            st.session_state.authenticated = True
-            st.rerun()
-        else:
-            st.error("密碼錯誤")
+    # 登入頁：置中的窄卡片，不撐滿螢幕
+    st.markdown(
+        '<style>.st-key-login_box{max-width:340px;margin:0 auto;}'
+        '.st-key-login_box [data-testid="stForm"]{border:none;padding:0;}</style>'
+        '<div style="height:22vh"></div>', unsafe_allow_html=True)
+    with st.container(key="login_box"):
+        st.markdown(
+            f'<div style="font-size:13px;color:{C["text_sub"]}">yAraY 的台股溝</div>'
+            f'<div style="margin:10px 0 28px;font-size:32px;font-weight:300;line-height:1.3;'
+            f'color:{C["text"]}">今天的持倉，<br>在登入之後。</div>', unsafe_allow_html=True)
+        with st.form("login_form", border=False):   # 用 form：按 Enter 就能登入
+            pwd = st.text_input("密碼", type="password", placeholder="輸入密碼")
+            ok = st.form_submit_button("登入", type="primary", use_container_width=True)
+        if ok:
+            if pwd == correct:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.markdown(f'<div style="margin-top:4px;font-size:13px;color:{C["up"]}">'
+                            '密碼不對，再試一次。</div>', unsafe_allow_html=True)
     return False
 
 if not _check_password():
