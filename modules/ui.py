@@ -53,7 +53,9 @@ def _icon_url(inner: str) -> str:
 
 def global_css() -> str:
     icons = "\n".join(
-        f".st-key-sidebar_nav [role=\"radiogroup\"] > label:nth-of-type({i + 1})::before"
+        # 1.58：選項組 > label；1.65 起：選項組 > div > label，兩種都要對得上
+        f".st-key-sidebar_nav [role=\"radiogroup\"] > label:nth-child({i + 1})::before,"
+        f".st-key-sidebar_nav [role=\"radiogroup\"] > :nth-child({i + 1}) label::before"
         f"{{-webkit-mask-image:{_icon_url(s)};mask-image:{_icon_url(s)}}}"
         for i, s in enumerate(_ICONS)
     )
@@ -96,6 +98,7 @@ button:focus-visible { outline:2px solid #ECE9E3 !important; outline-offset:2px;
 
 /* 輸入框：深底淺字 */
 [data-baseweb="input"], [data-baseweb="base-input"], [data-baseweb="textarea"],
+[data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"],
 [data-baseweb="select"] > div:first-child {
   background:#0E0E0D !important; border-color:#3A3936 !important; border-radius:6px !important;
 }
@@ -110,14 +113,15 @@ button:focus-visible { outline:2px solid #ECE9E3 !important; outline-offset:2px;
 
 /* 內頁的 radio（帳號、排序、區間）：膠囊。只針對選項，不碰 widget 自己的標籤 */
 [data-testid="stRadio"] [role="radiogroup"] { gap:6px !important; flex-wrap:wrap; }
-[data-testid="stRadio"] [role="radiogroup"] > label {
+[data-testid="stRadio"] [role="radiogroup"] label {
   margin:0 !important; padding:6px 14px !important; min-height:36px; border:1px solid #3A3936;
   border-radius:18px; align-items:center; cursor:pointer;
 }
-[data-testid="stRadio"] [role="radiogroup"] > label > div:first-child { display:none !important; }
-[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) { background:#ECE9E3; border-color:#ECE9E3; }
-[data-testid="stRadio"] [role="radiogroup"] > label:has(input:checked) p { color:#070707 !important; }
-[data-testid="stRadio"] [role="radiogroup"] > label p { font-size:13px !important; color:#ECE9E3; }
+[data-testid="stRadio"] [role="radiogroup"] label > div:first-child,
+[data-testid="stRadio"] label[data-testid="stRadioOption"] > div > div:first-child:not([data-testid]) { display:none !important; }
+[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) { background:#ECE9E3; border-color:#ECE9E3; }
+[data-testid="stRadio"] [role="radiogroup"] label:has(input:checked) p { color:#070707 !important; }
+[data-testid="stRadio"] [role="radiogroup"] label p { font-size:13px !important; color:#ECE9E3; }
 [data-testid="stRadio"] [data-testid="stWidgetLabel"] p { color:#8F8B85 !important; font-size:12px !important; }
 /* 底部導覽列 */
 .st-key-sidebar_nav {
@@ -129,19 +133,21 @@ button:focus-visible { outline:2px solid #ECE9E3 !important; outline-offset:2px;
 .st-key-sidebar_nav [role="radiogroup"] {
   display:flex !important; flex-wrap:nowrap !important; gap:0 !important; width:100%; max-width:720px; margin:0 auto;
 }
-.st-key-sidebar_nav [role="radiogroup"] > label {
+.st-key-sidebar_nav [role="radiogroup"] > div { flex:1 1 0; display:flex; min-width:0; }
+.st-key-sidebar_nav [role="radiogroup"] label {
+  width:100%;
   flex:1 1 0; position:relative; display:flex !important; flex-direction:column; justify-content:center; align-items:center;
   gap:3px; min-height:58px; padding:6px 0 !important; border:none; border-radius:0; background:transparent !important;
   color:#8F8B85;
 }
-.st-key-sidebar_nav [role="radiogroup"] > label::before {
+.st-key-sidebar_nav [role="radiogroup"] label::before {
   content:""; width:22px; height:22px; background:currentColor;
   -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat; -webkit-mask-size:contain; mask-size:contain;
 }
-.st-key-sidebar_nav [role="radiogroup"] > label p { font-size:11px !important; color:inherit !important; }
-.st-key-sidebar_nav [role="radiogroup"] > label:has(input:checked) { color:#ECE9E3; background:transparent !important; }
-.st-key-sidebar_nav [role="radiogroup"] > label:has(input:checked) p { font-weight:700 !important; color:#ECE9E3 !important; }
-.st-key-sidebar_nav [role="radiogroup"] > label:has(input:checked)::after {
+.st-key-sidebar_nav [role="radiogroup"] label p { font-size:11px !important; color:inherit !important; }
+.st-key-sidebar_nav [role="radiogroup"] label:has(input:checked) { color:#ECE9E3; background:transparent !important; }
+.st-key-sidebar_nav [role="radiogroup"] label:has(input:checked) p { font-weight:700 !important; color:#ECE9E3 !important; }
+.st-key-sidebar_nav [role="radiogroup"] label:has(input:checked)::after {
   content:""; position:absolute; top:-1px; left:28%; right:28%; height:2px; background:#ECE9E3;
   animation:navline 260ms ease-out both;
 }
@@ -438,10 +444,12 @@ def login_css(err_count: int) -> str:
 [data-testid="stMainBlockContainer"], .main .block-container { padding-bottom:180px !important; }
 .st-key-login_box { max-width:340px; margin:0 auto; }
 .st-key-login_box [data-testid="stForm"] { border:none; padding:0; }
-.st-key-login_box [data-baseweb="input"], .st-key-login_box [data-baseweb="base-input"] {
+.st-key-login_box [data-baseweb="input"], .st-key-login_box [data-baseweb="base-input"],
+.st-key-login_box [data-testid="stTextInputRootElement"] {
   background:transparent !important; border:none !important; border-bottom:1px solid #3A3936 !important; border-radius:0 !important;
 }
-.st-key-login_box [data-baseweb="input"]:focus-within { border-bottom-color:#ECE9E3 !important; }
+.st-key-login_box [data-baseweb="input"]:focus-within,
+.st-key-login_box [data-testid="stTextInputRootElement"]:focus-within { border-bottom-color:#ECE9E3 !important; }
 .st-key-login_box input { background:transparent !important; font-size:22px !important; letter-spacing:0.2em; padding-left:0 !important; }
 .st-key-login_box input::placeholder { letter-spacing:0.04em; font-size:17px !important; color:#46433F !important; }
 .st-key-login_box [data-baseweb="input"] button { background:transparent !important; }
