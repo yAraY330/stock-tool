@@ -56,11 +56,13 @@ def get_all_prices(tickers: tuple) -> dict:
 
 
 def _extract_ohlc(raw: pd.DataFrame, ticker: str, is_single: bool) -> pd.DataFrame:
-    o  = raw["Open"]  if is_single else raw["Open"][ticker]
-    h  = raw["High"]  if is_single else raw["High"][ticker]
-    lo = raw["Low"]   if is_single else raw["Low"][ticker]
-    c  = raw["Close"] if is_single else raw["Close"][ticker]
-    return pd.DataFrame({"Open": o, "High": h, "Low": lo, "Close": c},
+    def col(name: str) -> pd.Series:
+        s = raw[name]
+        # 新版 yfinance 只抓一檔時也會回傳多層欄位（DataFrame），要再取出那一欄
+        if isinstance(s, pd.DataFrame):
+            s = s[ticker] if ticker in s.columns else s.iloc[:, 0]
+        return s
+    return pd.DataFrame({"Open": col("Open"), "High": col("High"), "Low": col("Low"), "Close": col("Close")},
                         index=raw.index).dropna()
 
 

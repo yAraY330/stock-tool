@@ -17,7 +17,8 @@ def get_stock_info(ticker: str) -> dict:
         "name": info.get("longName") or info.get("shortName", ticker),
         "price": info.get("currentPrice") or info.get("regularMarketPrice"),
         "pe_ratio": info.get("trailingPE"),
-        "dividend_yield": info.get("dividendYield"),
+        # yfinance 新版的 dividendYield 是百分比數字（1.1＝1.1%），這裡統一換成小數
+        "dividend_yield": info["dividendYield"] / 100 if info.get("dividendYield") is not None else None,
         "market_cap": info.get("marketCap"),
         "52w_high": info.get("fiftyTwoWeekHigh"),
         "52w_low": info.get("fiftyTwoWeekLow"),

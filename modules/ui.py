@@ -106,6 +106,7 @@ button:focus-visible { outline:2px solid #ECE9E3 !important; outline-offset:2px;
 [data-baseweb="popover"] [role="option"]:hover { background:#1E1D1C !important; }
 [data-testid="stNumberInputContainer"] button { background:#0E0E0D !important; color:#8F8B85 !important; border:none !important; }
 [data-testid="stFileUploaderDropzone"] { background:#0E0E0D !important; border:1px dashed #3A3936 !important; }
+[data-testid="InputInstructions"] { display:none !important; }
 
 /* 內頁的 radio（帳號、排序、區間）：膠囊。只針對選項，不碰 widget 自己的標籤 */
 [data-testid="stRadio"] [role="radiogroup"] { gap:6px !important; flex-wrap:wrap; }
@@ -360,3 +361,254 @@ def stock_card(name: str, code: str, price: str, today: str, today_clr: str, spa
 <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px"><span style="font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{escape(name)}</span><span class="n" style="font-size:11px;color:#8A867F">{escape(code)}</span></div>
 <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px"><span class="n" style="font-size:18px;font-weight:300">{price}</span><span class="n" style="font-size:13px;color:{today_clr}">{today}</span></div>
 <div style="margin-top:8px">{spark_svg}</div>{foot}</div>"""
+
+
+# ── 登入頁：號子跑馬燈 ────────────────────────────────────────
+AMBER = "#F2B33D"
+
+
+def _ticker_row(items: list, dur: int, reverse: bool, idx: int) -> str:
+    """一排跑馬燈；items: [(名稱, 價格字串, 漲跌%)]。內容放兩份做無縫循環。"""
+    cells = []
+    for name, price, pct in items:
+        if pct is None:
+            chg = '<span style="color:#8F8B85">—</span>'
+        else:
+            clr = "#FF5A4E" if pct >= 0 else "#3FD07F"
+            chg = f'<span style="color:{clr}">{"▲" if pct >= 0 else "▼"}{abs(pct):.2f}%</span>'
+        cells.append(f'<span class="tk-cell"><span style="color:{AMBER}">{escape(name)}</span>'
+                     f'<span>{escape(price)}</span>{chg}</span>')
+    body = "".join(cells)
+    side = " r" if reverse else ""
+    direction = "reverse" if reverse else "normal"
+    return (f'<div class="tk-row{side}" style="--i:{idx}"><div class="tk-tape" style="animation-duration:{dur}s;'
+            f'animation-direction:{direction}">{body}{body}</div></div>')
+
+
+def ticker_block(quotes: list, which: str) -> str:
+    """which＝top／bottom：各兩排，方向交錯。quotes 為空就回傳空字串（不畫跑馬燈）。"""
+    if not quotes:
+        return ""
+    n = len(quotes)
+
+    def rot(k: int) -> list:
+        return (quotes[k % n:] + quotes[:k % n])[:5]
+
+    if which == "top":
+        rows = _ticker_row(rot(0), 22, False, 0) + _ticker_row(rot(4), 26, True, 1)
+    else:
+        rows = _ticker_row(rot(2), 30, False, 3) + _ticker_row(rot(6), 24, True, 4)
+    return f'<div class="tk tk-{which}" aria-hidden="true">{rows}</div>'
+
+
+def login_brand(date_label: str) -> str:
+    return (f'<div class="tk-brand"><div class="tk-logo">台股溝</div>'
+            f'<div class="tk-date n">{escape(date_label)}</div></div><div class="tk-groove"><i></i></div>')
+
+
+_TICKER_CSS = """
+@import url("https://fonts.googleapis.com/css2?family=DotGothic16&display=swap");
+.tk { position:fixed; left:0; right:0; z-index:5; background:#0B0A09; font-family:'DotGothic16', monospace; font-size:17px; color:#ECE9E3; }
+.tk-top { top:28px; border-bottom:1px solid #1C1B19; }
+.tk-bottom { bottom:28px; border-bottom:1px solid #1C1B19; }
+.tk-row { overflow:hidden; white-space:nowrap; border-top:1px solid #1C1B19; padding:10px 0; }
+.tk-tape { display:inline-flex; animation-name:tape; animation-timing-function:linear; animation-iteration-count:infinite; }
+.tk-cell { display:inline-flex; gap:10px; padding-right:28px; }
+@keyframes tape { to { transform:translateX(-50%); } }
+.tk-brand { text-align:center; font-family:'DotGothic16', monospace; }
+.tk-logo { font-size:72px; line-height:1; color:#F2B33D; letter-spacing:0.14em; padding-left:0.14em; }
+.tk-date { margin-top:12px; font-size:13px; color:#8F8B85; letter-spacing:0.2em; }
+.tk-groove { position:relative; height:1px; background:#2A2927; margin:34px 0 0; }
+.tk-groove i { position:absolute; inset:0; background:#F2B33D; transform:scaleX(0); transform-origin:0 50%; }
+"""
+
+
+def _compact(css: str) -> str:
+    # st.markdown 遇到空行就會結束 HTML 區塊，所以去掉空行
+    return "\n".join(line for line in css.split("\n") if line.strip())
+
+
+def login_css(err_count: int) -> str:
+    """登入頁版面；err_count 每加一，表單就重晃一次（動畫名稱交替才會重播）。"""
+    shake = ""
+    if err_count:
+        name = "shake-a" if err_count % 2 else "shake-b"
+        shake = f'.st-key-login_box [data-testid="stForm"]{{animation:{name} 320ms ease-out}}'
+    css = "<style>" + _TICKER_CSS + """
+[data-testid="stMainBlockContainer"], .main .block-container { padding-bottom:180px !important; }
+.st-key-login_box { max-width:340px; margin:0 auto; }
+.st-key-login_box [data-testid="stForm"] { border:none; padding:0; }
+.st-key-login_box [data-baseweb="input"], .st-key-login_box [data-baseweb="base-input"] {
+  background:transparent !important; border:none !important; border-bottom:1px solid #3A3936 !important; border-radius:0 !important;
+}
+.st-key-login_box [data-baseweb="input"]:focus-within { border-bottom-color:#ECE9E3 !important; }
+.st-key-login_box input { background:transparent !important; font-size:22px !important; letter-spacing:0.2em; padding-left:0 !important; }
+.st-key-login_box input::placeholder { letter-spacing:0.04em; font-size:17px !important; color:#46433F !important; }
+.st-key-login_box [data-baseweb="input"] button { background:transparent !important; }
+.st-key-login_box [data-testid="InputInstructions"] { display:none !important; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button {
+  min-height:50px !important; background:#F2B33D !important; border-color:#F2B33D !important; color:#070707 !important; border-radius:25px !important;
+}
+.st-key-login_box [data-testid="stFormSubmitButton"] button p { color:#070707 !important; font-weight:500; }
+.st-key-login_box [data-testid="stFormSubmitButton"] button:hover { background:#FFC55A !important; }
+@keyframes shake-a { 20%{transform:translateX(-6px)} 40%{transform:translateX(5px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(2px)} }
+@keyframes shake-b { 20%{transform:translateX(-6px)} 40%{transform:translateX(5px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(2px)} }
+""" + shake + """
+@media (prefers-reduced-motion: reduce) { .tk-tape, .st-key-login_box * { animation:none !important; } }
+</style>"""
+    return _compact(css)
+
+
+def entry_overlay(quotes: list, date_label: str) -> str:
+    """登入成功後播一次的「離站」：溝線畫亮 → 每排跑馬燈沿原方向衝出 → 招牌往左走 → 整層消失。"""
+    css = "<style>" + _TICKER_CSS + """
+.entry { position:fixed; inset:0; z-index:2000; background:#070707; pointer-events:none;
+  animation:entry-gone 300ms 1250ms ease-out both; }
+.entry .tk { z-index:auto; }
+.entry .tk-mid { position:absolute; left:0; right:0; top:calc(max(150px, 22vh) + 1.2rem); }
+.entry .tk-groove { max-width:340px; margin:34px auto 0; }
+.entry .tk-groove i { animation:entry-draw 480ms 60ms cubic-bezier(0.65,0,0.35,1) both; }
+.entry .tk-row { animation:rush-l 560ms calc(380ms + var(--i) * 70ms) cubic-bezier(0.55,0,0.9,0.35) both; }
+.entry .tk-row.r { animation-name:rush-r; }
+.entry .tk-brand { animation:rush-l 520ms 640ms cubic-bezier(0.55,0,0.9,0.35) both; }
+@keyframes entry-draw { to { transform:scaleX(1); } }
+@keyframes rush-l { to { transform:translateX(-115%); } }
+@keyframes rush-r { to { transform:translateX(115%); } }
+@keyframes entry-gone { to { opacity:0; visibility:hidden; } }
+@media (prefers-reduced-motion: reduce) { .entry { display:none; } }
+</style>"""
+    return (_compact(css) + '<div class="entry" aria-hidden="true">' + ticker_block(quotes, "top")
+            + f'<div class="tk-mid">{login_brand(date_label)}</div>' + ticker_block(quotes, "bottom") + "</div>")
+
+
+# ── 觀察頁 ───────────────────────────────────────────────────
+def target_hit_card(name: str, code: str, price: str, target: str, note: str) -> str:
+    why = f"你寫的理由：「{escape(note)}」" if note else "你沒有寫觀察理由。"
+    return (f'<section aria-label="已到目標價" style="margin:4px 0 12px;border:1px solid #6E6A64;background:#0E0E0D;padding:16px 16px 14px">'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:13px;color:#8F8B85">'
+            f'<span>已到目標價</span><span class="n" style="font-size:12px;color:#8A867F">現價 ≤ 目標</span></div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:8px">'
+            f'<span style="font-size:20px;font-weight:500">{escape(name)} <span class="n" style="font-size:13px;font-weight:400;color:#8A867F">{escape(code)}</span></span>'
+            f'<span class="n" style="font-size:30px;font-weight:300">{price}</span></div>'
+            f'<div class="n" style="font-size:13px;color:#8F8B85">目標 {target}・{why}</div>'
+            f'<p style="margin:12px 0 0;font-size:14px;color:#B9B5AE">到價不等於該買。先確認當初的理由現在還成立，再決定。</p></section>')
+
+
+def watch_row(name: str, code: str, note: str, price: str, w1: float | None, m1: float | None,
+              target: float, dist: float | None) -> str:
+    def pct(v):
+        return ("—", C["text_sub"]) if v is None else (f"{v:+.1f}%", tone(v))
+
+    w1s, w1c = pct(w1)
+    m1s, m1c = pct(m1)
+    if target > 0 and dist is not None:
+        near = dist <= 5
+        pos = max(0.0, min(dist, 25)) / 25 * 100
+        dot = "#ECE9E3" if near else "#8F8B85"
+        txt = "已到價" if dist <= 0 else f"還差 {dist:.1f}%"
+        bar = (f'<span class="n" style="font-size:11px;color:#8A867F;min-width:70px">目標 {target:,.2f}</span>'
+               f'<span style="position:relative;height:12px"><span style="position:absolute;left:0;right:0;top:5px;height:2px;background:#2A2927"></span>'
+               f'<span style="position:absolute;left:0;top:0;width:1px;height:12px;background:#ECE9E3"></span>'
+               f'<span style="position:absolute;top:2px;width:8px;height:8px;border-radius:4px;margin-left:-4px;left:{pos:.1f}%;background:{dot}"></span></span>'
+               f'<span class="n" style="font-size:12px;min-width:64px;text-align:right;color:{dot if near else "#8A867F"}">{txt}</span>')
+    elif target > 0:
+        bar = f'<span class="n" style="font-size:11px;color:#8A867F">目標 {target:,.2f}（暫無報價）</span><span></span><span></span>'
+    else:
+        bar = '<span style="font-size:11px;color:#8A867F">未設目標價</span><span></span><span></span>'
+    note_html = escape(note) if note else "&nbsp;"
+    return (f'<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;padding:14px 0 12px">'
+            f'<div style="min-width:0"><div style="font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+            f'{escape(name)} <span class="n" style="font-size:12px;font-weight:400;color:#8A867F">{escape(code)}</span></div>'
+            f'<div style="font-size:12px;color:#8A867F;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{note_html}</div></div>'
+            f'<div style="text-align:right"><div class="n" style="font-size:17px;font-weight:300">{price}</div>'
+            f'<div class="n" style="font-size:12px"><span style="color:{w1c}">{w1s}</span>　<span style="color:{m1c}">{m1s}</span></div></div>'
+            f'<div style="grid-column:1 / -1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;margin-top:10px">{bar}</div>'
+            f'</div>')
+
+
+def target_chart(closes: list, target: float) -> str:
+    vals = [float(v) for v in closes if v == v]
+    if len(vals) < 2:
+        return ""
+    ext = [target] if target > 0 else []
+    lo, hi = min(vals + ext), max(vals + ext)
+    w, h, pad = 350, 64, 4
+    d = _path(vals, w, h, pad, lo, hi)
+    tline = ""
+    if target > 0:
+        ty = (hi - target) / ((hi - lo) or 1) * (h - 2 * pad) + pad
+        tline = (f'<line x1="0" x2="{w}" y1="{ty:.1f}" y2="{ty:.1f}" stroke="#6E6A64" stroke-width="1" '
+                 f'stroke-dasharray="3 4" vector-effect="non-scaling-stroke"></line>')
+    clr = tone(vals[-1] - vals[0])
+    note = f"虛線＝目標價 {target:,.2f}" if target > 0 else "設定目標價後，這裡會畫出目標線"
+    return (f'<figure style="margin:4px 0 8px" aria-label="近 1 個月走勢">'
+            f'<div style="display:flex;justify-content:space-between;font-size:12px;color:#8A867F"><span>近 1 個月</span>'
+            f'<span class="n">{min(vals):,.2f} – {max(vals):,.2f}</span></div>'
+            f'<svg width="100%" height="{h}" viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block;margin-top:6px">{tline}'
+            f'<path d="{d}" fill="none" stroke="{clr}" stroke-width="1.5" stroke-linejoin="round" '
+            f'vector-effect="non-scaling-stroke"></path></svg>'
+            f'<figcaption style="font-size:11px;color:#8A867F;margin-top:2px">{note}</figcaption></figure>')
+
+
+# ── 評估頁 ───────────────────────────────────────────────────
+def _scale_bar(pos_pct: float, zones: tuple, ends: tuple, h: int = 16) -> str:
+    z1, z2 = zones
+    ends_html = "".join(f"<span>{escape(e)}</span>" for e in ends)
+    return (f'<div style="position:relative;height:{h}px">'
+            f'<div style="position:absolute;left:0;right:0;top:{h // 2 - 2}px;display:flex;gap:2px;height:4px">'
+            f'<span style="flex:{z1:.2f} 1 0;background:#2A2927"></span><span style="flex:{z2 - z1:.2f} 1 0;background:#3A3936"></span>'
+            f'<span style="flex:{100 - z2:.2f} 1 0;background:#2A2927"></span></div>'
+            f'<span style="position:absolute;top:0;left:{pos_pct:.1f}%;width:2px;height:{h}px;margin-left:-1px;background:#ECE9E3"></span></div>'
+            f'<div class="n" style="display:flex;justify-content:space-between;font-size:11px;color:#8A867F;margin-top:4px">{ends_html}</div>')
+
+
+def range_bar(low: float, high: float, price: float, label: str) -> str:
+    pos = max(0.0, min(100.0, (price - low) / ((high - low) or 1) * 100))
+    bar = _scale_bar(pos, (30, 70), (f"低 {low:,.2f}", "低檔｜中間｜高檔", f"高 {high:,.2f}"), 24)
+    return (f'<section aria-label="52 週區間" style="margin:18px 0 8px">'
+            f'<div style="display:flex;justify-content:space-between;font-size:13px;color:#8F8B85"><span>52 週區間</span>'
+            f'<span class="n" style="color:#ECE9E3">位在 {pos:.0f}%</span></div>'
+            f'<div style="margin-top:10px">{bar}</div>'
+            f'<p style="margin:10px 0 0;font-size:14px;color:#B9B5AE">{escape(label)}</p></section>')
+
+
+def line_chart(values: list, start_label: str, end_label: str, aria: str) -> str:
+    vals = [float(v) for v in values if v == v]
+    if len(vals) < 2:
+        return ""
+    w, h = 350, 140
+    grid = "".join(f'<line x1="0" x2="{w}" y1="{y}" y2="{y}" stroke="#1A1918" vector-effect="non-scaling-stroke"></line>'
+                   for y in (35, 70, 105))
+    return (f'<figure style="margin:8px 0 0" aria-label="{escape(aria)}">'
+            f'<svg width="100%" height="{h}" viewBox="0 0 {w} {h}" preserveAspectRatio="none" style="display:block">{grid}'
+            f'<path d="{_path(vals, w, h, 6)}" fill="none" stroke="#ECE9E3" stroke-width="1.5" '
+            f'stroke-linejoin="round" vector-effect="non-scaling-stroke"></path></svg>'
+            f'<figcaption class="n" style="display:flex;justify-content:space-between;font-size:11px;color:#8A867F;margin-top:4px">'
+            f'<span>{escape(start_label)}</span><span>{escape(end_label)}</span></figcaption></figure>')
+
+
+def metric_rows(items: list) -> str:
+    """items: evaluator.evaluate() 的結果。用原生 <details> 展開，不觸發 Streamlit 重跑。"""
+    rows = []
+    for m in items:
+        has = m.get("value") is not None and m.get("pos") is not None
+        val = escape(m["display"]) if has else "無資料"
+        bar = f'<div style="margin-top:10px">{_scale_bar(m["pos"], m["zones"], m["ends"])}</div>' if has else ""
+        vclr = "#ECE9E3" if has else "#6E6A64"
+        rows.append(
+            f'<details class="mrow" style="border-top:1px solid #222120">'
+            f'<summary style="list-style:none;cursor:pointer;padding:14px 0;display:block">'
+            f'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px"><span style="font-size:15px">{escape(m["label"])}</span>'
+            f'<span><span class="n" style="font-size:22px;font-weight:300;color:{vclr}">{val}</span>'
+            f'<span style="font-size:13px;color:#B9B5AE;margin-left:8px">{escape(m.get("verdict") or "")}</span></span></div>{bar}</summary>'
+            f'<div style="padding:0 0 16px"><p style="margin:0;font-size:14px;color:#ECE9E3">{escape(m["explanation"])}</p>'
+            f'<p style="margin:8px 0 0;font-size:13px;color:#8F8B85">{escape(m["beginner_tip"])}</p></div></details>')
+    return ('<style>.mrow summary::-webkit-details-marker{display:none}</style>'
+            '<section aria-label="基本面指標" style="border-bottom:1px solid #222120">' + "".join(rows) + "</section>")
+
+
+# ── 知識頁 ───────────────────────────────────────────────────
+def read_progress(n: int, total: int) -> str:
+    pct = n / total * 100 if total else 0
+    return (f'<div style="height:2px;background:#1A1918;margin:-6px 0 18px"><div style="height:2px;width:{pct:.1f}%;'
+            f'background:#ECE9E3"></div></div>')

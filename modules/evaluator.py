@@ -59,16 +59,43 @@ METRIC_EXPLANATIONS = {
 }
 
 
+# 評估頁刻度條用：兩個門檻（與上面 explain 的分界一致）、刻度範圍、三段判讀、顯示格式
+METRIC_SCALES = {
+    "pe_ratio":       {"cut": (15, 25), "scale": (0, 40), "words": ("偏低", "合理", "偏高"),
+                       "fmt": lambda v: f"{v:.1f} 倍", "ends": ("0", "15 ｜ 25", "40")},
+    "dividend_yield": {"cut": (0.02, 0.05), "scale": (0, 0.08), "words": ("偏低", "正常", "高"),
+                       "fmt": lambda v: f"{v*100:.2f}%", "ends": ("0%", "2% ｜ 5%", "8%")},
+    "beta":           {"cut": (0.8, 1.2), "scale": (0, 2), "words": ("比大盤穩", "和大盤相近", "比大盤波動大"),
+                       "fmt": lambda v: f"{v:.2f}", "ends": ("0", "0.8 ｜ 1.2", "2")},
+    "profit_margins": {"cut": (0.05, 0.15), "scale": (0, 0.5), "words": ("偏低", "正常", "偏高"),
+                       "fmt": lambda v: f"{v*100:.1f}%", "ends": ("0%", "5% ｜ 15%", "50%")},
+    "revenue_growth": {"cut": (0, 0.15), "scale": (-0.2, 0.5), "words": ("衰退", "穩定成長", "高速成長"),
+                       "fmt": lambda v: f"{v*100:+.1f}%", "ends": ("-20%", "0 ｜ 15%", "50%")},
+}
+
+
 def evaluate(info: dict) -> list:
     results = []
     for key, meta in METRIC_EXPLANATIONS.items():
         value = info.get(key)
-        results.append({
+        item = {
             "label": meta["label"],
             "value": value,
             "explanation": meta["explain"](value),
             "beginner_tip": meta["beginner_tip"],
-        })
+            "display": None, "verdict": None, "pos": None, "zones": None, "ends": None,
+        }
+        sc = METRIC_SCALES.get(key)
+        if sc and value is not None:
+            lo, hi = sc["scale"]
+            pct = lambda x: max(0.0, min(100.0, (x - lo) / (hi - lo) * 100))
+            c1, c2 = sc["cut"]
+            item.update({
+                "display": sc["fmt"](value),
+                "verdict": sc["words"][0] if value < c1 else sc["words"][1] if value < c2 else sc["words"][2],
+                "pos": pct(value), "zones": (pct(c1), pct(c2)), "ends": sc["ends"],
+            })
+        results.append(item)
     return results
 
 

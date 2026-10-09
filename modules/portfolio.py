@@ -40,7 +40,7 @@ def _get_ws():
 
 def _empty() -> dict:
     return {"holdings": [], "watchlist": [], "favorites": [],
-            "sold": [], "quick_view_extras": [], "snapshot": None}
+            "sold": [], "quick_view_extras": [], "snapshot": None, "kb_read": []}
 
 
 @st.cache_data(ttl=30)
@@ -276,6 +276,25 @@ def remove_quick_view_extra(code: str) -> None:
 
 
 # ── 每日快照（供台股晨報日報讀取）────────────────────────────
+# ── 知識頁已讀進度（題目 id 形如 "2-1"＝第 3 章第 2 題）──────────────
+def get_kb_read() -> list:
+    return _load().get("kb_read", [])
+
+
+def mark_kb_read(qid: str) -> None:
+    """只動 kb_read 這個鍵；寫法同 save_snapshot，先清快取重讀再寫。"""
+    if _use_sheets():
+        _load_sheets.clear()
+    data = _load()
+    # 防呆：重讀拿不到任何持倉與觀察 → 可能是雲端讀取失敗，寫回會抹掉資料，寧可不寫
+    if _use_sheets() and not data.get("holdings") and not data.get("watchlist"):
+        return
+    read = data.get("kb_read", [])
+    if qid not in read:
+        data["kb_read"] = read + [qid]
+        _save(data)
+
+
 def get_snapshot() -> dict | None:
     return _load().get("snapshot")
 

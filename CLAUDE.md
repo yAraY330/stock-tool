@@ -33,9 +33,11 @@ stock-tool/
 1. **持倉** —— 今日損益（含今日走勢線、最大貢獻／拖累）、總覽（價差損益與含息報酬並存）、群組化持倉列（5 日迷你走勢，點開看 K 線、基本面、多筆明細、編輯／配息／賣出／刪除）、已賣出、日報快照、帳號管理
 2. **速覽** —— 今日焦點、近 6 週每日損益月曆（推算值）、個股走勢卡片（當日／週／月）
 3. **新增** —— 手動新增（即時預覽加入後的持倉分配與 40% 集中度）、CSV 匯入匯出
-4. **觀察** —— 觀察清單、目標買入價
-5. **評估** —— 單檔查詢、52 週位置、一年走勢、指標解讀
-6. **知識** —— 靜態教學章節
+4. **觀察** —— 已到目標價卡片（提醒先確認理由）、依距離目標價排序的清單（距離條、點開看 1 月走勢＋目標線）、目標買入價
+5. **評估** —— 單檔查詢、最近查過、52 週位置、3 月／6 月／1 年走勢、指標刻度條（門檻在 `evaluator.METRIC_SCALES`）、加入觀察／新增持倉
+6. **知識** —— 搜尋、章節切換、展開即記為已讀（存 `kb_read`）
+
+**登入頁**：上下各兩排號子跑馬燈＋點陣字「台股溝」＋密碼欄；登入後播一次「離站」進場動畫（`ui.entry_overlay`）。跑馬燈**只能放公開行情**（`app.py` 的 `_LOGIN_TICKERS`：大盤＋權值股），登入前誰都看得到，絕不可放持股或觀察清單。抓不到行情時不畫跑馬燈。
 
 頁面頂部有自動提醒：買入點（觀察標的跌到目標價）、停利／停損、集中度（單檔超過總市值 40%）。
 
@@ -45,13 +47,15 @@ stock-tool/
 - 色彩一律走 `app.py` 頂端的 `C` 字典：底 `#070707`、字 `#ECE9E3`、次要字 `#8F8B85`、分隔線 `#222120`。**台股慣例：紅 `#E5675C`＝漲、綠 `#4FB386`＝跌**。
 - 字體 Noto Sans TC；大數字用細字重（300）。
 - 動畫只用 CSS、只在元素第一次出現時播放，並尊重 `prefers-reduced-motion`。
-- 導覽是 `st.radio(key="sidebar_nav")` 用 CSS 固定在底部；跳頁請設 `st.session_state.sidebar_nav`。不要改成網址連結（整頁重載會清掉登入狀態）。
+- 導覽是 `st.radio(key="sidebar_nav")` 用 CSS 固定在底部。跳頁請設 `st.session_state._nav_to = "頁名"` 再 `st.rerun()`（導覽列建立後不能直接改 `sidebar_nav`，會丟 StreamlitAPIException）；觀察／評估頁可用 `_go_eval`／`_go_add`。不要改成網址連結（整頁重載會清掉登入狀態）。
+- 登入頁例外：琥珀色 `#F2B33D`＋點陣字 DotGothic16，只用在登入頁與進場動畫。
+- `st.expander` 的標題不要隨狀態變動（例如已讀變色），一改字就會被當成新元件、展開狀態重置。
 
 ## 資料儲存
 
 `modules/portfolio.py` 偵測 `st.secrets` 是否有 `sheet_id`：有 → Google Sheets；無 → 本機 `portfolio.json`。**兩種模式都要測。** 資料是一份 JSON，存在 Sheet `portfolio` 工作表 cell(1,1)。
 
-頂層鍵：`holdings`、`watchlist`、`favorites`、`sold`、`quick_view_extras`、`snapshot`（另有 stock-opinions 寫的 `opinions`）。讀取端一律用 `.get()` 加預設值。
+頂層鍵：`holdings`、`watchlist`、`favorites`、`sold`、`quick_view_extras`、`snapshot`、`kb_read`（知識頁已讀題目 id，形如 `"2-1"`；另有 stock-opinions 寫的 `opinions`）。讀取端一律用 `.get()` 加預設值。
 
 ⚠️ Sheets 寫入是整份 JSON 覆寫，`_load_sheets()` 有 30 秒快取。寫入前必須先 `_load_sheets.clear()` 再讀，讀寫之間不要做耗時運算。
 
@@ -65,6 +69,7 @@ stock-tool/
 ## 命名約定
 
 - 呼叫 yfinance 時加 `.TW`（`0050.TW`），存進 JSON 時不加（`"0050"`）
+- yfinance 1.x 的 `dividendYield` 是百分比數字（1.1＝1.1%），`data.get_stock_info` 已統一換成小數
 - 函數名英文 snake_case，顯示文字全用繁體中文
 - 每個 module 只做一件事，資料拉取與畫面顯示不要混在一起
 

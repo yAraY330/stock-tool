@@ -19,12 +19,40 @@ from modules.portfolio import (
     get_sold, sell_holding,
     add_dividend, remove_dividend,
     get_snapshot, save_snapshot,
+    get_kb_read, mark_kb_read,
 )
 from modules import ui
 from modules.ui import C   # 色票（單一真相來源在 modules/ui.py）
 
 st.set_page_config(page_title="yAraY的台股溝", page_icon="📈", layout="wide")
 st.markdown(ui.global_css(), unsafe_allow_html=True)
+
+
+# 登入頁跑馬燈：只放公開的大盤與熱門權值股（登入前誰都看得到，不能露出個人持股）
+_LOGIN_TICKERS = {
+    "^TWII": "加權", "2330.TW": "2330 台積電", "0050.TW": "0050 台灣50", "2317.TW": "2317 鴻海",
+    "2454.TW": "2454 聯發科", "0056.TW": "0056 高股息", "2881.TW": "2881 富邦金", "2308.TW": "2308 台達電",
+}
+_TZ8 = datetime.timezone(datetime.timedelta(hours=8))
+
+
+def _login_quotes() -> list:
+    """[(名稱, 價格字串, 今日漲跌%)]；抓不到（例如被限速）就回傳空清單，登入頁改成不畫跑馬燈。"""
+    try:
+        prices = get_current_prices(tuple(_LOGIN_TICKERS))
+    except Exception:
+        return []
+    out = []
+    for t, name in _LOGIN_TICKERS.items():
+        p = prices.get(t, {}).get("price")
+        if p:
+            out.append((name, f"{p:,.0f}" if p >= 1000 else f"{p:,.1f}", prices[t].get("today_pct")))
+    return out
+
+
+def _date_label() -> str:
+    now = datetime.datetime.now(_TZ8)
+    return f"{now:%m.%d} {now:%a}".upper()
 
 
 def _check_password() -> bool:
@@ -38,30 +66,36 @@ def _check_password() -> bool:
     if not correct:
         st.session_state.authenticated = True
         return True
-    # 登入頁：置中的窄卡片，不撐滿螢幕
-    st.markdown(
-        '<style>.st-key-login_box{max-width:340px;margin:0 auto;}'
-        '.st-key-login_box [data-testid="stForm"]{border:none;padding:0;}</style>'
-        '<div style="height:22vh"></div>', unsafe_allow_html=True)
+    # 登入頁：上下各兩排號子跑馬燈，中間「台股溝」，下面是密碼欄
+    errs = st.session_state.get("login_err", 0)
+    quotes = _login_quotes()
+    st.markdown(ui.login_css(errs) + ui.ticker_block(quotes, "top") + ui.ticker_block(quotes, "bottom")
+                + '<div style="height:max(150px, 22vh)"></div>', unsafe_allow_html=True)
     with st.container(key="login_box"):
-        st.markdown(
-            f'<div style="font-size:13px;color:{C["text_sub"]}">yAraY 的台股溝</div>'
-            f'<div style="margin:10px 0 28px;font-size:32px;font-weight:300;line-height:1.3;'
-            f'color:{C["text"]}">今天的持倉，<br>在登入之後。</div>', unsafe_allow_html=True)
-        with st.form("login_form", border=False):   # 用 form：按 Enter 就能登入
-            pwd = st.text_input("密碼", type="password", placeholder="輸入密碼")
-            ok = st.form_submit_button("登入", type="primary", use_container_width=True)
-        if ok:
-            if pwd == correct:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.markdown(f'<div style="margin-top:4px;font-size:13px;color:{C["up"]}">'
-                            '密碼不對，再試一次。</div>', unsafe_allow_html=True)
+        st.markdown(ui.login_brand(_date_label()), unsafe_allow_html=True)
+        with st.form("login_form", border=False, clear_on_submit=True):   # 用 form：按 Enter 就能登入
+            pwd = st.text_input("密碼", type="password", placeholder="輸入後按 Enter")
+            ok = st.form_submit_button("進入", type="primary", use_container_width=True)
+        if errs:
+            msg = f"密碼不對。已經第 {errs} 次了，確認一下大小寫？" if errs >= 3 else "密碼不對，再試一次。"
+            st.markdown(f'<div style="margin-top:4px;font-size:13px;color:{C["up"]}">{msg}</div>',
+                        unsafe_allow_html=True)
+    if ok:
+        if pwd == correct:
+            st.session_state.authenticated = True
+            st.session_state.pop("login_err", None)
+            st.session_state.play_entry = True    # 下一輪播一次進場動畫
+        else:
+            st.session_state.login_err = errs + 1   # 重跑後表單會晃一下並顯示錯誤
+        st.rerun()
     return False
 
 if not _check_password():
     st.stop()
+
+# 進場動畫「離站」：只在剛登入那一輪播一次，放在頁面內容之前，動畫期間資料照常載入
+if st.session_state.pop("play_entry", False):
+    st.markdown(ui.entry_overlay(_login_quotes(), _date_label()), unsafe_allow_html=True)
 
 PAGES = ["持倉", "速覽", "新增", "觀察", "評估", "知識"]
 for _k, _v in [("eval_ticker", ""), ("csv_imported", False), ("editing_idx", None)]:
@@ -69,8 +103,9 @@ for _k, _v in [("eval_ticker", ""), ("csv_imported", False), ("editing_idx", Non
         st.session_state[_k] = _v
 if st.session_state.get("sidebar_nav") not in PAGES:     # 舊版 emoji 選項或第一次開
     st.session_state.sidebar_nav = PAGES[0]
-
-_TZ8 = datetime.timezone(datetime.timedelta(hours=8))
+# 跨頁跳轉：導覽列畫出來之後就不能改它的值，所以先記在 _nav_to，下一輪在這裡（導覽列建立前）才切換
+if st.session_state.get("_nav_to") in PAGES:
+    st.session_state.sidebar_nav = st.session_state.pop("_nav_to")
 
 
 # ── 共用 helper ────────────────────────────────────────────────
@@ -238,6 +273,19 @@ def _maybe_write_snapshot(holdings: list, *, force: bool = False) -> str | None:
         return f"快照已更新（{payload['updated_at'][:16]}，狀態 {payload['status']}）"
     except Exception as _err:
         return f"快照更新失敗，既有資料未受影響：{_err}" if force else None
+
+
+# ── 跨頁跳轉（觀察／評估 共用）─────────────────────────────────
+def _go_eval(code: str) -> None:
+    st.session_state.eval_ticker = code
+    st.session_state._nav_to = "評估"
+    st.rerun()
+
+
+def _go_add(code: str) -> None:
+    st.session_state.add_code = code       # 新增頁的代碼欄 key，跳過去就預填好
+    st.session_state._nav_to = "新增"
+    st.rerun()
 
 
 # ── 持倉管理 ─────────────────────────────────────────────────
@@ -481,7 +529,7 @@ if page == "持倉":
                 with _gbb:
                     if st.button("評估頁", key=f"pe_grp_{_code}", use_container_width=True):
                         st.session_state.eval_ticker = _code.replace(".TW", "")
-                        st.session_state.sidebar_nav = "評估"
+                        st.session_state._nav_to = "評估"
                         st.rerun()
                 with _gbc:
                     _eval_key    = f"show_eval_grp_{_code}"
@@ -1295,102 +1343,100 @@ elif page == "新增":
 
 # ── 觀察清單 ─────────────────────────────────────────────────
 elif page == "觀察":
-    _page_head("觀察清單")
-    _html(ui.alerts(_ALERTS))
     watchlist = get_watchlist()
+    _page_head("觀察", f"{len(watchlist)} 檔" if watchlist else "")
+    _html(ui.alerts([a for a in _ALERTS if a[0] != "buy"]))   # 到價改用下方卡片呈現
 
     if watchlist:
-        wl_tickers = tuple(format_ticker(w["code"]) for w in watchlist)
+        wl_tickers = tuple(sorted({format_ticker(w["code"]) for w in watchlist}))
         with st.spinner("更新報價中..."):
             try:
                 wl_prices = get_all_prices(wl_tickers)
             except Exception:
                 wl_prices = {}
+            try:
+                wl_ohlc = get_ohlc_batch(wl_tickers)
+            except Exception:
+                wl_ohlc = {}
 
+        wl_rows = []
         for i, w in enumerate(watchlist):
-            ticker    = format_ticker(w["code"])
-            pd_       = wl_prices.get(ticker, {})
-            price     = pd_.get("price")
-            w1        = pd_.get("w1_pct")
-            m1        = pd_.get("m1_pct")
-            price_str = f"NT$ {price:,.1f}" if price else "—"
-            w1_str    = fmt_pct(w1) if w1 is not None else "—"
-            m1_str    = fmt_pct(m1) if m1 is not None else "—"
+            t      = format_ticker(w["code"])
+            pd_    = wl_prices.get(t, {})
+            price  = pd_.get("price")
+            target = float(w.get("target_price", 0) or 0)
+            dist   = (price - target) / target * 100 if (price and target > 0) else None
+            wl_rows.append((i, w, t, price, pd_.get("w1_pct"), pd_.get("m1_pct"), target, dist))
+        # 有距離的依距離排（越接近目標越前面），沒設目標或沒報價的排最後
+        wl_rows.sort(key=lambda r: (r[7] is None, r[7] if r[7] is not None else 0))
 
-            with st.expander(
-                f"{w['name']}（{w['code']}）　"
-                f"現價 {price_str}　1週 {w1_str}　1月 {m1_str}"
-            ):
-                if w.get("note"):
-                    st.markdown(f"**備註：** {w['note']}")
-                ca, cb, cc = st.columns(3)
-                with ca:
-                    if price:
-                        st.metric("現價", f"NT$ {price:,.1f}")
-                with cb:
-                    if w1 is not None:
-                        st.metric("本週", fmt_pct(w1))
-                with cc:
-                    if m1 is not None:
-                        st.metric("本月", fmt_pct(m1))
-                # ── 目標買入價 ──
-                target = float(w.get("target_price", 0))
-                if target > 0:
-                    if price and price <= target:
-                        st.success(f"已達到目標買入價 NT$ {target:,.2f}！現價 NT$ {price:,.1f}")
-                    elif price:
-                        st.info(f"目標買入價：NT$ {target:,.2f}　（現價還需再跌 NT$ {price - target:,.1f}）")
-                    else:
-                        st.info(f"目標買入價：NT$ {target:,.2f}")
+        # ── 已到目標價：提醒先確認理由，不是叫你買 ──
+        for i, w, t, price, w1, m1, target, dist in wl_rows:
+            if dist is not None and dist <= 0:
+                _html(ui.target_hit_card(w["name"], w["code"], f"{price:,.2f}", f"{target:,.2f}", w.get("note", "")))
+                with st.container(horizontal=True):
+                    if st.button("看評估", key=f"hit_eval_{i}", use_container_width=True):
+                        _go_eval(w["code"])
+                    if st.button("寫理由並新增", key=f"hit_add_{i}", type="primary", use_container_width=True):
+                        _go_add(w["code"])
 
+        _html(f'<div style="display:flex;justify-content:space-between;margin-top:18px;padding-bottom:6px;'
+              f'font-size:12px;color:{C["faint"]};border-bottom:1px solid {C["line"]}">'
+              f'<span>依距離目標價排序　點一檔看走勢</span><span>1 週　1 月</span></div>')
+        for i, w, t, price, w1, m1, target, dist in wl_rows:
+            _k        = _safe_key(w["code"])
+            _open_key = f"w_open_{w['code']}"
+            _is_open  = st.session_state.get(_open_key, False)
+            # 整列可點：沿用持倉頁的 hrow_／hrowbtn_ 透明按鈕樣式
+            with st.container(key=f"hrow_w{_k}"):
+                _html(ui.watch_row(w["name"], w["code"], w.get("note", ""),
+                                   f"{price:,.2f}" if price else "—", w1, m1, target, dist))
+                if st.button(f"{'收起' if _is_open else '展開'} {w['name']}", key=f"hrowbtn_w{_k}"):
+                    st.session_state[_open_key] = not _is_open
+                    st.rerun()
+
+            if _is_open:
+                _closes = wl_ohlc[t]["Close"].dropna().tolist() if t in wl_ohlc else []
+                _html(ui.target_chart(_closes, target))
                 tgt_key = f"edit_tgt_{i}"
-                if tgt_key not in st.session_state:
-                    st.session_state[tgt_key] = False
-
-                wb1 = wb2 = wb3 = st.container(horizontal=True)
-                with wb1:
-                    tgt_label = "收起" if st.session_state[tgt_key] else "目標價"
-                    if st.button(tgt_label, key=f"tgt_btn_{i}", use_container_width=True):
-                        st.session_state[tgt_key] = not st.session_state[tgt_key]
+                _editing = st.session_state.get(tgt_key, False)
+                with st.container(horizontal=True):
+                    if st.button("收起" if _editing else "目標價", key=f"tgt_btn_{i}", use_container_width=True):
+                        st.session_state[tgt_key] = not _editing
                         st.rerun()
-                with wb2:
                     if st.button("評估", key=f"we_{i}", use_container_width=True):
-                        st.session_state.eval_ticker = w["code"]
-                        st.session_state.sidebar_nav = "評估"
-                        st.rerun()
-                with wb3:
+                        _go_eval(w["code"])
                     if st.button("移除", key=f"wr_{i}", use_container_width=True):
                         remove_from_watchlist(i)
+                        st.session_state.pop(_open_key, None)
                         st.rerun()
-
-                if st.session_state[tgt_key]:
-                    with st.form(f"tgt_form_{i}"):
+                if _editing:
+                    with st.form(f"tgt_form_{i}", border=False):
                         new_target = st.number_input(
                             "目標買入價（填 0 表示取消設定）",
                             min_value=0.0, value=target, step=0.5, format="%.2f",
                         )
-                        if st.form_submit_button("儲存", type="primary",
-                                                  use_container_width=True):
+                        if st.form_submit_button("儲存", type="primary", use_container_width=True):
                             update_watchlist_item(i, target_price=new_target)
                             st.session_state[tgt_key] = False
                             st.rerun()
+            _html(f'<div style="border-top:1px solid {C["line"]}"></div>')
     else:
         st.info("觀察清單是空的，請使用下方表單新增你想追蹤的股票。")
 
-    st.divider()
     st.subheader("新增觀察標的")
-    with st.form("add_watchlist_form", clear_on_submit=True):
-        wc1, wc2, wc3 = st.columns([1, 2, 1])
+    with st.form("add_watchlist_form", clear_on_submit=True, border=False):
+        wc1, wc2 = st.columns(2)
         with wc1:
             wl_code   = st.text_input("股票代碼", placeholder="例：0050")
         with wc2:
-            wl_note   = st.text_input("備註（選填）", placeholder="例：等拉回再買")
-        with wc3:
             wl_target = st.number_input(
                 "目標買入價（選填）", min_value=0.0, step=0.5, format="%.2f",
                 help="股價跌至此價位時，app 頂端會出現提醒。填 0 表示不設定。",
             )
+        wl_note = st.text_input("為什麼想觀察（選填）", placeholder="例：等拉回再買")
         wl_submitted = st.form_submit_button("加入觀察", type="primary", use_container_width=True)
+    st.caption("跌到目標價時，每一頁頂端都會出現提醒。")
 
     if wl_submitted:
         if not wl_code.strip():
@@ -1412,77 +1458,138 @@ elif page == "觀察":
 
 # ── 股票評估 ─────────────────────────────────────────────────
 elif page == "評估":
-    _page_head("股票評估")
+    _page_head("評估", "解讀基本面數字")
     _html(ui.alerts(_ALERTS))
-    st.write("輸入台股代碼，解讀這支股票的基本面數字。")
 
-    ticker_input = st.text_input(
-        "台股代碼（例：0050、2330、00878）",
-        value=st.session_state.eval_ticker,
-        placeholder="輸入代碼後按 Enter 或點擊評估",
-    )
+    # 從其他頁跳過來（觀察、持倉）：直接帶入代碼並查詢
+    if st.session_state.eval_ticker:
+        st.session_state.eval_code    = st.session_state.eval_ticker
+        st.session_state.eval_current = st.session_state.eval_ticker
+        st.session_state.eval_ticker  = ""
 
-    if st.button("評估這支股票", type="primary") and ticker_input:
-        ticker = format_ticker(ticker_input)
+    def _pick_recent() -> None:
+        _p = st.session_state.get("eval_recent_pick")
+        if _p:
+            st.session_state.eval_code    = _p
+            st.session_state.eval_current = _p
+        st.session_state.eval_recent_pick = None
+
+    with st.form("eval_form", border=False):
+        with st.container(horizontal=True, vertical_alignment="bottom"):
+            _code_in = st.text_input("台股代碼", key="eval_code", placeholder="例：0050、2330、00878")
+            _go = st.form_submit_button("評估", type="primary")
+    if _go and _code_in.strip():
+        st.session_state.eval_current = _code_in.strip().upper()
+    _recent = st.session_state.get("eval_recent", [])
+    if _recent:
+        st.pills("最近查過", _recent, key="eval_recent_pick", on_change=_pick_recent)
+
+    _cur = st.session_state.get("eval_current")
+    if not _cur:
+        st.caption("輸入台股代碼，解讀這支股票的基本面數字。")
+    else:
+        ticker = format_ticker(_cur)
         info, history = None, None
-        with st.spinner(f"正在拉取 {ticker} 的資料..."):
+        with st.spinner(f"正在拉取 {_cur} 的資料..."):
             try:
                 info    = get_stock_info(ticker)
                 history = get_price_history(ticker, "1y")
             except Exception as e:
                 st.error(f"資料拉取失敗：{e}")
-
         if info is not None and not info.get("price"):
             st.error("找不到這個代碼的資料，請確認輸入是否正確。")
             info = None
 
         if info is not None:
-            st.subheader(f"{info['name']} （{ticker_input.upper()}）")
-            if info.get("sector"):
-                st.caption(f"產業：{info['sector']} — {info.get('industry', '')}")
+            st.session_state.eval_recent = ([_cur] + [c for c in _recent if c != _cur])[:3]
+            is_etf = info.get("quote_type") == "ETF"
+            kind   = "ETF" if is_etf else "・".join(x for x in (info.get("sector"), info.get("industry")) if x)
+            closes = history["Close"].dropna() if history is not None and not history.empty else None
+            today  = None
+            if closes is not None and len(closes) >= 2:
+                today = (closes.iloc[-1] - closes.iloc[-2]) / closes.iloc[-2] * 100
+            _html(f'<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:18px">'
+                  f'<span style="font-size:24px;font-weight:500">{info["name"]} <span class="n" style="font-size:14px;'
+                  f'font-weight:400;color:{C["faint"]}">{_cur}</span></span>'
+                  f'<span style="font-size:12px;color:{C["faint"]};text-align:right">{kind}</span></div>'
+                  f'<div style="display:flex;align-items:baseline;gap:12px;margin-top:4px">'
+                  f'<span class="n" style="font-size:52px;font-weight:300;letter-spacing:-0.02em;line-height:1.1">'
+                  f'{info["price"]:,.2f}</span><span class="n" style="font-size:15px;color:{ui.tone(today)}">'
+                  f'{"—" if today is None else f"{today:+.2f}%"}</span></div>')
 
             pos = price_position(info)
             if pos:
-                col1, col2, col3 = st.columns(3)
-                col1.metric("目前股價", f"NT$ {pos['price']:,.1f}")
-                col2.metric("52週高點", f"NT$ {pos['high']:,.1f}")
-                col3.metric("52週低點", f"NT$ {pos['low']:,.1f}")
-                progress = int(pos["position_pct"])
-                st.progress(min(max(progress / 100, 0.0), 1.0))
-                st.caption(f"目前股價在52週區間的 {progress}% 位置 — {pos['label']}")
+                _html(ui.range_bar(pos["low"], pos["high"], pos["price"], pos["label"] + "。"))
 
-            if history is not None and not history.empty:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(
-                    x=history.index, y=history["Close"],
-                    mode="lines", name="收盤價",
-                    line=dict(color=C["text"], width=1.6),
-                ))
-                _dark_fig(fig, 320)
-                st.caption("近一年股價走勢")
-                st.plotly_chart(fig, use_container_width=True)
+            if closes is not None and len(closes) >= 2:
+                _rng = st.segmented_control("走勢", ["3 月", "6 月", "1 年"], default="1 年", key="eval_range")
+                _n = {"3 月": 63, "6 月": 125}.get(_rng or "1 年", len(closes))
+                _seg = closes.tail(_n)
+                _html(ui.line_chart(_seg.tolist(), f"{_seg.index[0]:%Y/%m/%d}", f"{_seg.index[-1]:%m/%d}",
+                                    f"{info['name']} 近{_rng or '1 年'}收盤走勢，最新 {_seg.iloc[-1]:,.2f}"))
 
-            st.divider()
-            st.subheader("基本面指標解讀")
-            is_etf = info.get("quote_type") == "ETF"
+            st.subheader("基本面指標　點一下看白話解釋")
             if is_etf:
                 st.info("ETF 是一籃子股票，不是單一公司，所以本益比、淨利率、營收成長率這類指標通常沒有資料。這是正常現象。")
-            for m in evaluate(info):
-                with st.expander(f"{m['label']}：{m['explanation']}"):
-                    st.info(f"新手小知識：{m['beginner_tip']}")
+            _html(ui.metric_rows(evaluate(info)))
+
+            _in_watch = any(w["code"] == _cur for w in get_watchlist())
+            with st.container(horizontal=True):
+                if st.button("已在觀察清單" if _in_watch else "加入觀察", key="eval_to_watch",
+                             disabled=_in_watch, use_container_width=True):
+                    add_to_watchlist(_cur, info["name"])
+                    st.rerun()
+                if st.button("新增持倉", key="eval_to_add", type="primary", use_container_width=True):
+                    _go_add(_cur)
+            st.caption("數字只是起點，不是買賣訊號。")
 
 
 # ── 補知識 ───────────────────────────────────────────────────
 elif page == "知識":
-    _page_head("台股補知識")
-    st.caption("從零開始學台股，點開每個問題查看解答。")
+    _kb_read  = set(get_kb_read())
+    _titles   = [re.sub(r"^第.章：", "", c["title"]) for c in CHAPTERS]
+    _kb_total = sum(len(c["sections"]) for c in CHAPTERS)
+    _kb_valid = {f"{ci}-{si}" for ci, c in enumerate(CHAPTERS) for si in range(len(c["sections"]))}
+    _n_read   = len(_kb_read & _kb_valid)
+    _page_head("知識", f"已讀 {_n_read} / {_kb_total}")
+    _html(ui.read_progress(_n_read, _kb_total))
 
-    for chapter in CHAPTERS:
-        st.subheader(chapter["title"])
-        for sec in chapter["sections"]:
-            with st.expander(sec["q"]):
-                st.markdown(sec["a"])
-        st.divider()
+    _kb_q = st.text_input("找問題", placeholder="例：殖利率、手續費、大跌", key="kb_q").strip()
+    st.session_state.setdefault("kb_chap", 0)
+
+    def _kb_step(d: int) -> None:
+        st.session_state.kb_chap = max(0, min(len(CHAPTERS) - 1, st.session_state.kb_chap + d))
+
+    if _kb_q:
+        _items = [(ci, si) for ci, c in enumerate(CHAPTERS) for si, s in enumerate(c["sections"])
+                  if _kb_q in s["q"] or _kb_q in s["a"]]
+        st.caption(f"「{_kb_q}」找到 {len(_items)} 題" if _items else f"「{_kb_q}」沒有相關的題目，換個說法試試")
+    else:
+        st.pills("章節", list(range(len(CHAPTERS))), key="kb_chap", required=True,
+                 format_func=lambda i: f"{i + 1:02d} {_titles[i]}", label_visibility="collapsed")
+        _ci = st.session_state.kb_chap
+        _cn = sum(1 for si in range(len(CHAPTERS[_ci]["sections"])) if f"{_ci}-{si}" in _kb_read)
+        _html(f'<div style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 0 6px">'
+              f'<span style="font-size:22px;font-weight:500"><span class="n" style="font-weight:300;color:{C["faint"]};'
+              f'margin-right:10px">{_ci + 1:02d}</span>{_titles[_ci]}</span>'
+              f'<span class="n" style="font-size:12px;color:{C["faint"]}">已讀 {_cn} / {len(CHAPTERS[_ci]["sections"])}</span></div>')
+        _items = [(_ci, si) for si in range(len(CHAPTERS[_ci]["sections"]))]
+
+    for ci, si in _items:
+        _sec = CHAPTERS[ci]["sections"][si]
+        _qid = f"{ci}-{si}"
+        # 標題要固定不變：一改字（例如已讀變灰），Streamlit 會當成新元件，剛展開的又收起來
+        _label = f"{ci + 1}.{si + 1}　{_sec['q']}"
+        # 展開就記成已讀（存進 Sheet 的 kb_read）
+        with st.expander(_label, key=f"kb_{_qid}", on_change=mark_kb_read, args=(_qid,)):
+            st.markdown(_sec["a"])
+
+    if not _kb_q:
+        with st.container(horizontal=True):
+            st.button("上一章", key="kb_prev", on_click=_kb_step, args=(-1,),
+                      disabled=st.session_state.kb_chap == 0, use_container_width=True)
+            st.button("下一章", key="kb_next", on_click=_kb_step, args=(1,),
+                      disabled=st.session_state.kb_chap == len(CHAPTERS) - 1, use_container_width=True)
 
 
 st.caption("本工具僅供個人記錄參考，不構成投資建議。")
