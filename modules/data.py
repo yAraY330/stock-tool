@@ -2,6 +2,8 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 
+from modules.names import zh_name
+
 
 @st.cache_data(ttl=300)
 def get_stock_info(ticker: str) -> dict:
@@ -14,7 +16,7 @@ def get_stock_info(ticker: str) -> dict:
             if alt_info.get("currentPrice") or alt_info.get("regularMarketPrice"):
                 info = alt_info
     return {
-        "name": info.get("longName") or info.get("shortName", ticker),
+        "name": zh_name(ticker, info.get("longName") or info.get("shortName", ticker)),
         "price": info.get("currentPrice") or info.get("regularMarketPrice"),
         "pe_ratio": info.get("trailingPE"),
         # yfinance 新版的 dividendYield 是百分比數字（1.1＝1.1%），這裡統一換成小數

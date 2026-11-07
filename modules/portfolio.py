@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 import streamlit as st
 
+from modules.names import zh_name
+
 _DATA = Path(__file__).parent.parent / "portfolio.json"
 
 
@@ -64,6 +66,11 @@ def _load_file() -> dict:
     return _empty()
 
 
+def _zh(items: list) -> list:
+    """顯示用：換成中文股名。回傳副本，不能改到快取裡的原物件，否則下次 _save 會把中文寫回 Sheet。"""
+    return [{**x, "name": zh_name(x.get("code", ""), x.get("name", ""))} for x in items]
+
+
 # ── 統一讀寫入口 ──────────────────────────────────────────────
 def _load() -> dict:
     return _load_sheets() if _use_sheets() else _load_file()
@@ -81,7 +88,7 @@ def _save(data: dict) -> None:
 
 # ── 持倉 ─────────────────────────────────────────────────────
 def get_holdings() -> list:
-    return _load()["holdings"]
+    return _zh(_load()["holdings"])
 
 
 def add_holding(code: str, name: str, shares: float, avg_cost: float,
@@ -155,7 +162,7 @@ def toggle_favorite(code: str) -> None:
 
 # ── 觀察清單 ──────────────────────────────────────────────────
 def get_watchlist() -> list:
-    return _load()["watchlist"]
+    return _zh(_load()["watchlist"])
 
 
 def add_to_watchlist(code: str, name: str, note: str = "",
@@ -185,7 +192,7 @@ def remove_from_watchlist(idx: int) -> None:
 
 # ── 賣出記錄 ──────────────────────────────────────────────────
 def get_sold() -> list:
-    return _load().get("sold", [])
+    return _zh(_load().get("sold", []))
 
 
 def sell_holding(idx: int, sell_price: float, sell_date: str,
@@ -256,7 +263,7 @@ def remove_dividend(idx: int, log_idx: int) -> None:
 
 # ── 速覽表額外追蹤 ────────────────────────────────────────────
 def get_quick_view_extras() -> list:
-    return _load().get("quick_view_extras", [])
+    return _zh(_load().get("quick_view_extras", []))
 
 
 def add_quick_view_extra(code: str, name: str) -> None:

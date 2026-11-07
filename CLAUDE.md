@@ -16,10 +16,13 @@ stock-tool/
 ├── setup_sheets.py     # 產生 secrets／把本機資料灌進 Sheet（--migrate）
 ├── 啟動台股工具.bat     # 使用者雙擊啟動用，不要動
 ├── scripts/
-│   └── update_snapshot.py  # 排程寫每日快照回 Sheet
+│   ├── update_snapshot.py  # 排程寫每日快照回 Sheet
+│   └── build_stock_names.py  # 手動重建 modules/stock_names.json（新股上市時跑）
 └── modules/
     ├── ui.py           # 純顯示用 HTML/SVG/CSS 產生器（全域樣式、走勢線、odometer、色帶、月曆），不碰資料讀寫
     ├── data.py         # 單檔股票詳細資料（yfinance）
+    ├── names.py        # 代號 → 中文簡稱查表（zh_name）
+    ├── stock_names.json  # 中文簡稱對照檔（證交所＋櫃買，約 2300 檔），由 scripts/build_stock_names.py 產生
     ├── market.py       # 批次行情、漲跌幅、K 線、快照行情
     ├── snapshot.py     # 組每日快照 payload（純函式）
     ├── evaluator.py    # 指標解讀（附新手說明）
@@ -56,6 +59,8 @@ stock-tool/
 `modules/portfolio.py` 偵測 `st.secrets` 是否有 `sheet_id`：有 → Google Sheets；無 → 本機 `portfolio.json`。**兩種模式都要測。** 資料是一份 JSON，存在 Sheet `portfolio` 工作表 cell(1,1)。
 
 頂層鍵：`holdings`、`watchlist`、`favorites`、`sold`、`quick_view_extras`、`snapshot`、`kb_read`（知識頁已讀題目 id，形如 `"2-1"`；另有 stock-opinions 寫的 `opinions`）。讀取端一律用 `.get()` 加預設值。
+
+**股名顯示一律走中文對照表**：`get_holdings`／`get_watchlist`／`get_sold`／`get_quick_view_extras` 回傳的是換過中文 `name` 的**副本**，Sheet 裡既有的英文 `name` 不動（不要改成直接改原物件，否則下次 `_save` 會把中文寫回去）。`get_stock_info` 也優先回中文，所以新加入的股票會直接存中文。查不到的代號沿用原名稱。
 
 ⚠️ Sheets 寫入是整份 JSON 覆寫，`_load_sheets()` 有 30 秒快取。寫入前必須先 `_load_sheets.clear()` 再讀，讀寫之間不要做耗時運算。
 
