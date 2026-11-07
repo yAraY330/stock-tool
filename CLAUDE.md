@@ -2,6 +2,8 @@
 
 個人持倉追蹤工具。Streamlit + yfinance，資料存在本機 JSON 或 Google Sheets。部署在 Streamlit Community Cloud，**從 `main` 自動部署：push 就等於上線**。
 
+**push 後的熱更新不一定生效**：Streamlit Cloud 收到 push 只做熱更新（log 顯示「Updated app!」），`modules/` 底下的檔案或新增模組常常不會被重新載入，畫面仍是舊版。只要改到 `app.py` 以外的檔案，push 後一律提醒使用者到 share.streamlit.io →`stock-tool` 右側「⋮」→ Reboot app，等 1～2 分鐘再驗收。Reboot 會讓當下使用中的連線中斷，由使用者自己按（Claude 代按會被 auto mode 擋）。使用者的 GitHub 帳號不能用密碼登入，手機上要用其他登入方式（例如 Google 或 passkey）。
+
 **這是給一位股市新手自用的工具，不是通用產品。** 持股以 ETF（市值型與高股息）加金融股為主，**配息是報酬的重要組成**。計算與呈現以「ETF ＋ 配息型持股」為預設情境。
 
 ## 目錄結構
