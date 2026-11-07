@@ -141,6 +141,11 @@ def _safe_key(code: str) -> str:
     return re.sub(r"[^0-9A-Za-z]", "_", code)
 
 
+def _toggle(key: str) -> None:
+    """展開／收起列的按鈕回呼：在重跑前就切好狀態，整頁只需跑一遍（不用再 st.rerun）"""
+    st.session_state[key] = not st.session_state.get(key, False)
+
+
 def _html(s: str) -> None:
     st.markdown(s, unsafe_allow_html=True)
 
@@ -511,10 +516,8 @@ if page == "持倉":
             with st.container(key=f"hrow_{_safe_key(_code)}"):
                 _html(ui.holding_row(_gs["name"], "　".join(_sub_parts), ui.spark(_closes, _ri),
                                      _val_str, _pnl_disp, ui.tone(_gs["tot_pnl"]), _is_fav))
-                if st.button(f"{'收起' if _is_open else '展開'} {_gs['name']}",
-                             key=f"hrowbtn_{_safe_key(_code)}"):
-                    st.session_state[_detail_key] = not _is_open
-                    st.rerun()
+                st.button(f"{'收起' if _is_open else '展開'} {_gs['name']}",
+                          key=f"hrowbtn_{_safe_key(_code)}", on_click=_toggle, args=(_detail_key,))
             _html(f'<div style="border-top:1px solid {C["line"]}"></div>')
 
 
@@ -1391,9 +1394,8 @@ elif page == "觀察":
             with st.container(key=f"hrow_w{_k}"):
                 _html(ui.watch_row(w["name"], w["code"], w.get("note", ""),
                                    f"{price:,.2f}" if price else "—", w1, m1, target, dist))
-                if st.button(f"{'收起' if _is_open else '展開'} {w['name']}", key=f"hrowbtn_w{_k}"):
-                    st.session_state[_open_key] = not _is_open
-                    st.rerun()
+                st.button(f"{'收起' if _is_open else '展開'} {w['name']}", key=f"hrowbtn_w{_k}",
+                          on_click=_toggle, args=(_open_key,))
 
             if _is_open:
                 _closes = wl_ohlc[t]["Close"].dropna().tolist() if t in wl_ohlc else []

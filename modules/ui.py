@@ -128,6 +128,11 @@ button:focus-visible { outline:2px solid #ECE9E3 !important; outline-offset:2px;
   position:fixed !important; left:0; right:0; bottom:0; z-index:1000; width:100% !important;
   background:#070707; border-top:1px solid #222120; padding-bottom:env(safe-area-inset-bottom);
 }
+/* 手機上 Community Cloud 會在右下角疊「Hosted with Streamlit」紅方塊＋作者頭像（外層頁面，App 改不到）：
+   導覽列整排往上抬，底下留一條黑底給它們，按鈕不再被蓋住 */
+@media (max-width: 960px) {
+  .st-key-sidebar_nav { padding-bottom:max(56px, env(safe-area-inset-bottom)); }
+}
 .st-key-sidebar_nav [data-testid="stRadio"], .st-key-sidebar_nav [data-testid="stRadio"] > div { width:100% !important; }
 .st-key-sidebar_nav [data-testid="stWidgetLabel"] { display:none !important; }
 .st-key-sidebar_nav [role="radiogroup"] {

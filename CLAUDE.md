@@ -19,12 +19,13 @@ stock-tool/
 ├── 啟動台股工具.bat     # 使用者雙擊啟動用，不要動
 ├── scripts/
 │   ├── update_snapshot.py  # 排程寫每日快照回 Sheet
-│   └── build_stock_names.py  # 手動重建 modules/stock_names.json（新股上市時跑）
+│   └── build_stock_names.py  # 手動重建 stock_names.json 與 otc_codes.json（新股上市時跑）
 └── modules/
     ├── ui.py           # 純顯示用 HTML/SVG/CSS 產生器（全域樣式、走勢線、odometer、色帶、月曆），不碰資料讀寫
     ├── data.py         # 單檔股票詳細資料（yfinance）
-    ├── names.py        # 代號 → 中文簡稱查表（zh_name）
+    ├── names.py        # 代號 → 中文簡稱查表（zh_name）、是否上櫃（is_otc）
     ├── stock_names.json  # 中文簡稱對照檔（證交所＋櫃買，約 2300 檔），由 scripts/build_stock_names.py 產生
+    ├── otc_codes.json  # 上櫃代號清單（約 1000 檔），format_ticker 據此加 .TWO
     ├── market.py       # 批次行情、漲跌幅、K 線、快照行情
     ├── snapshot.py     # 組每日快照 payload（純函式）
     ├── evaluator.py    # 指標解讀（附新手說明）
@@ -75,7 +76,7 @@ stock-tool/
 
 ## 命名約定
 
-- 呼叫 yfinance 時加 `.TW`（`0050.TW`），存進 JSON 時不加（`"0050"`）
+- 呼叫 yfinance 一律經 `format_ticker`：上市加 `.TW`（`0050.TW`）、上櫃加 `.TWO`（`8299.TWO`，依 `otc_codes.json`）；存進 JSON 時不加後綴（`"0050"`）。`market.py` 的「.TW 失敗再試 .TWO」保留當清單沒更新時的保險
 - yfinance 1.x 的 `dividendYield` 是百分比數字（1.1＝1.1%），`data.get_stock_info` 已統一換成小數
 - 函數名英文 snake_case，顯示文字全用繁體中文
 - 每個 module 只做一件事，資料拉取與畫面顯示不要混在一起

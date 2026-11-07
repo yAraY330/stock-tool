@@ -2,7 +2,7 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 
-from modules.names import zh_name
+from modules.names import is_otc, zh_name
 
 
 @st.cache_data(ttl=300)
@@ -41,8 +41,8 @@ def get_price_history(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def format_ticker(code: str) -> str:
-    """把使用者輸入的代碼轉成 yfinance 格式（已含後綴則保留）"""
+    """把使用者輸入的代碼轉成 yfinance 格式（已含後綴則保留）；上櫃加 .TWO，其餘加 .TW"""
     code = code.strip().upper()
     if code.endswith(".TW") or code.endswith(".TWO"):
         return code
-    return code + ".TW"
+    return code + (".TWO" if is_otc(code) else ".TW")
